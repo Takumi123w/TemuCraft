@@ -72,6 +72,18 @@ final class Game extends Canvas implements Runnable, CommandListener {
     private int deathFrames;
     private int slashFrames;
 
+    private final java.util.Random rng = new java.util.Random();
+    private static final int MAX_FUSE = 16;
+    private static final int BLAST = 3;
+    private static final long FUSE_MS = 3000L;
+    private final int[] fuseX = new int[MAX_FUSE];
+    private final int[] fuseY = new int[MAX_FUSE];
+    private final int[] fuseZ = new int[MAX_FUSE];
+    private final long[] fuseAt = new long[MAX_FUSE];
+    private int fuseN;
+    // true from a restored save until the chunks under the saved position exist
+    private boolean restorePending;
+
     private volatile boolean running = true;
     private volatile boolean paused;
     private long lastTime;
@@ -95,6 +107,7 @@ final class Game extends Canvas implements Runnable, CommandListener {
         World.init();
         float[] s = World.savedPlayer();
         if (s != null) {
+            restorePending = true;
             playerX = s[0];
             playerY = s[1];
             playerZ = s[2];
@@ -393,6 +406,16 @@ protected void pointerPressed(int x, int y) {
     }
 
     private void physicsStep() {
+        if (restorePending) {
+            // Chunks load lazily, so wait for the area before trusting the saved height.
+            if (!World.areaReady()) return;
+            restorePending = false;
+            int bx = Calc.floor(playerX), bz = Calc.floor(playerZ);
+            int feet = Calc.floor(playerY);
+            if (!World.passable(World.get(bx, feet, bz)) || !World.passable(World.get(bx, feet + 1, bz))) {
+                playerY = World.surfaceY(playerX, playerZ);
+            }
+        }
         int turn = (kTurnR ? 0 : 1) - (kTurnL ? 0 : 1);
         yaw += turn * 0.02f;
         int look = (kUp ? 1 : 0) - (kDown ? 1 : 0);
@@ -499,7 +522,7 @@ protected void pointerPressed(int x, int y) {
         boolean hitEntity = false;
         if (clickMine) {
             int heldItem = inv.id(held);
-            if (heldItem == Items.STONE_SWORD || heldItem == Items.WOOD_SWORD) {
+            if (Items.isSword(heldItem)) {
                 slashFrames = 6;
             }
             int tiZ = zombies.target(playerX, playerY, playerZ, fwdX(), fwdY(), fwdZ());
@@ -535,6 +558,11 @@ protected void pointerPressed(int x, int y) {
             mineTimer = 0;
         }
 
+if (clickPlace && !invBtn && inv.id(held) == Items.APPLE && hp < MAX_HP) {
+    hp = Math.min(MAX_HP, hp + 4);
+    inv.take(held);
+    clickPlace = false;
+}
 if (clickPlace) {
     if (invBtn) {
         openInv(0);
@@ -548,7 +576,9 @@ if (clickPlace) {
         wakeStart = System.currentTimeMillis();
         World.setSpawn(Renderer.hovX + 0.5f, Renderer.hovY + 2f, Renderer.hovZ + 0.5f);
     }
-} else {
+} else if (hb == Items.TNT && inv.id(held) == Items.TORCH) {
+            igniteTnt(Renderer.hovX, Renderer.hovY, Renderer.hovZ);
+        } else {
             int tx = Renderer.hovX + Renderer.nrmX;
             int ty = Renderer.hovY + Renderer.nrmY;
             int tz = Renderer.hovZ + Renderer.nrmZ;
@@ -631,37 +661,91 @@ private void die() {
 
     private int mineTime(int b) {
         int item = inv.id(held);
-        boolean stonePick = item == Items.STONE_PICKAXE;
-        boolean woodPick = item == Items.WOOD_PICKAXE;
-        boolean stoneAxe = item == Items.STONE_AXE;
-        boolean woodAxe = item == Items.WOOD_AXE;
-        if (isRock(b)) return stonePick ? 8 : (woodPick ? 15 : 30);
+        int pl = Items.pickLevel(item);
+        int al = Items.axeLevel(item);
+        if (isRock(b)) return pl >= 3 ? 5 : (pl == 2 ? 8 : (pl == 1 ? 15 : 30));
         if (b == World.WOOD || b == Items.PLANKS || b == Items.CRAFT_TABLE) {
-            return stoneAxe ? 5 : (woodAxe ? 8 : 15);
+            return al >= 3 ? 3 : (al == 2 ? 5 : (al == 1 ? 8 : 15));
         }
-        if (b == World.LEAVES) return (stoneAxe || woodAxe) ? 3 : 8;
+        if (b == World.LEAVES) return al >= 1 ? 3 : 8;
         if (b == World.DIRT || b == World.GRASS) return 8;
         return 15;
     }
 
     private static boolean isRock(int b) {
         return b == World.STONE || b == World.BRICKS || b == Items.COBBLE
-                || b == Items.COAL_ORE || b == Items.IRON_ORE;
+                || b == Items.COAL_ORE || b == Items.IRON_ORE || b == Items.IRON_BLOCK;
     }
 
-private void breakBlock(int bx, int by, int bz, int b) {
-    int item = inv.id(held);
-    boolean pick = item == Items.WOOD_PICKAXE || item == Items.STONE_PICKAXE;
-    boolean removed = (isRock(b) && !pick) || inv.add(Items.dropOf(b), 1) == 0;
-    if (!removed) return;
-    World.set(bx, by, bz, World.AIR);
-    int[] p = bedPartner(bx, by, bz, b);          
-    if (p != null) World.set(p[0], p[1], p[2], World.AIR);
-    inv.damage(held);
-}
+    private void breakBlock(int bx, int by, int bz, int b) {
+        int item = inv.id(held);
+        int need = (b == Items.IRON_ORE || b == Items.IRON_BLOCK) ? 2 : 1;
+        boolean canDrop = !isRock(b) || Items.pickLevel(item) >= need;
+        boolean removed = !canDrop || inv.add(Items.dropOf(b), 1) == 0;
+        if (!removed) return;
+        World.set(bx, by, bz, World.AIR);
+        int[] p = bedPartner(bx, by, bz, b);
+        if (p != null) World.set(p[0], p[1], p[2], World.AIR);
+        if (b == World.LEAVES && rng.nextInt(20) == 0) inv.add(Items.APPLE, 1);
+        inv.damage(held);
+    }
 
+    private void igniteTnt(int x, int y, int z) {
+        for (int i = 0; i < fuseN; i++) {
+            if (fuseX[i] == x && fuseY[i] == y && fuseZ[i] == z) return;
+        }
+        if (fuseN >= MAX_FUSE) return;
+        fuseX[fuseN] = x;
+        fuseY[fuseN] = y;
+        fuseZ[fuseN] = z;
+        fuseAt[fuseN] = System.currentTimeMillis() + FUSE_MS;
+        fuseN++;
+    }
 
-private int[] findBedHead(int tx, int ty, int tz) {
+    private void updateTnt() {
+        long now = System.currentTimeMillis();
+        int i = 0;
+        while (i < fuseN) {
+            if (now < fuseAt[i]) {
+                i++;
+                continue;
+            }
+            int x = fuseX[i], y = fuseY[i], z = fuseZ[i];
+            fuseN--;
+            fuseX[i] = fuseX[fuseN];
+            fuseY[i] = fuseY[fuseN];
+            fuseZ[i] = fuseZ[fuseN];
+            fuseAt[i] = fuseAt[fuseN];
+            if (World.get(x, y, z) == Items.TNT) explode(x, y, z);
+        }
+    }
+
+    private void explode(int cx, int cy, int cz) {
+        World.set(cx, cy, cz, World.AIR);
+        int r2 = BLAST * BLAST;
+        for (int dx = -BLAST; dx <= BLAST; dx++) {
+            for (int dy = -BLAST; dy <= BLAST; dy++) {
+                for (int dz = -BLAST; dz <= BLAST; dz++) {
+                    if (dx * dx + dy * dy + dz * dz > r2) continue;
+                    int x = cx + dx, y = cy + dy, z = cz + dz;
+                    int b = World.get(x, y, z);
+                    if (b == Items.TNT) {
+                        igniteTnt(x, y, z);
+                    } else if (b > World.AIR) {
+                        World.set(x, y, z, World.AIR);
+                    }
+                }
+            }
+        }
+        double ex = playerX - (cx + 0.5), ey = (playerY + 0.9) - (cy + 0.5), ez = playerZ - (cz + 0.5);
+        if (ex * ex + ey * ey + ez * ez < (BLAST + 1) * (BLAST + 1)) {
+            hp -= 6;
+            hurtFrames = 8;
+            if (hp <= 0) die();
+        }
+    }
+
+    private int[] findBedHead(int tx, int ty, int tz) {
     int[] f = bedDir();
     int[][] cand = { f, { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
     for (int i = 0; i < cand.length; i++) {
@@ -687,6 +771,7 @@ private int[] findBedHead(int tx, int ty, int tz) {
 
     private int weaponDamage() {
         int item = inv.id(held);
+        if (item == Items.IRON_SWORD) return 6;
         if (item == Items.STONE_SWORD) return 5;
         if (item == Items.WOOD_SWORD) return 4;
         return 1;
@@ -711,6 +796,7 @@ private int[] findBedHead(int tx, int ty, int tz) {
                 clearPlayerBody();
                 updateLighting();
                 updateZombies();
+                updateTnt();
                 sheeps.update(dayTime);
 
                 Renderer.sinYaw = (float) Math.sin(yaw);

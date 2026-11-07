@@ -21,6 +21,20 @@ static void build() {
     }
     loadSheet();
     buildTorch();
+    buildNew();
+}
+
+/** Procedural art for blocks and items added after the sprite sheet. */
+private static void buildNew() {
+    for (int id = Items.TNT; id <= Items.MAX_ID; id++) {
+        for (int band = 0; band < 3; band++) {
+            for (int y = 0; y < TEX; y++) {
+                for (int x = 0; x < TEX; x++) {
+                    atlas[id * BLOCK + band * TEX * TEX + y * TEX + x] = pixel(id, x, y);
+                }
+            }
+        }
+    }
 }
 
 private static void buildBedHead() {
@@ -107,7 +121,8 @@ private static void loadSheet() {
 
 static final String[] NAMES = { "", "grass", "dirt", "", "stone", "bricks", "", "wood", "leaves", "flat",
     "planks", "craft", "cobble", "coal ore", "iron ore", "stick", "coal", "wood sword", "stone sword",
-    "wool", "bed", "wood pickaxe", "stone pickaxe", "wood axe", "stone axe", "torch", "bed head" };
+    "wool", "bed", "wood pickaxe", "stone pickaxe", "wood axe", "stone axe", "torch", "bed head",
+    "tnt", "iron block", "apple", "iron ingot", "iron sword", "iron pickaxe", "iron axe" };
     
     
     private static void buildPlanks() {
@@ -191,12 +206,56 @@ private static int pixel(int id, int x, int y) {
                 return axe(x, y, 0xFF8B5A2B);
             case Items.STONE_AXE:
                 return axe(x, y, 0xFF9C9C9C);
+            case Items.IRON_SWORD:
+                return sword(x, y, 0xFFD0D0D0);
+            case Items.IRON_PICKAXE:
+                return pickaxe(x, y, 0xFFD0D0D0);
+            case Items.IRON_AXE:
+                return axe(x, y, 0xFFD0D0D0);
+            case Items.IRON_INGOT:
+                return ingot(x, y);
+            case Items.APPLE:
+                return apple(x, y);
+            case Items.TNT:
+                return tnt(x, y);
+            case Items.IRON_BLOCK:
+                return ironBlock(x, y);
             default:
                 return 0xFFFF00FF;
         }
     }
 
     
+    private static int ingot(int x, int y) {
+        if (y < 5 || y > 11) return 0;
+        if (y >= 10 && (x < 3 || x > 12)) return 0;
+        if (y == 5) return 0xFFF2F2F2;
+        if (y >= 10) return 0xFF8A8A8A;
+        return 0xFFC8C8C8;
+    }
+
+    private static int apple(int x, int y) {
+        int dx = x - 8, dy = y - 9;
+        if (x == 8 && y >= 2 && y <= 4) return 0xFF6B4220;
+        if (x >= 9 && x <= 11 && y >= 1 && y <= 3) return 0xFF3FA030;
+        if (dx * dx + dy * dy <= 25) {
+            return (dx < -1 && dy < -1) ? 0xFFFF7070 : 0xFFC01010;
+        }
+        return 0;
+    }
+
+    private static int tnt(int x, int y) {
+        if (y == 0 || y == TEX - 1 || x == 0 || x == TEX - 1) return 0xFF5A0000;
+        if (y >= 6 && y <= 9) return (x % 4 == 0) ? 0xFF2B2B2B : 0xFFEEEEEE;
+        return ((x + y) % 5 == 0) ? 0xFFA01818 : 0xFFC02020;
+    }
+
+    private static int ironBlock(int x, int y) {
+        if (x == 0 || y == 0 || x == TEX - 1 || y == TEX - 1) return 0xFF8A8A8A;
+        if ((x == 3 || x == 12) && (y == 3 || y == 12)) return 0xFF6E6E6E;
+        return ((x + y) % 7 == 0) ? 0xFFD6D6D6 : 0xFFBFBFBF;
+    }
+
     private static int pickaxe(int x, int y, int head) {
         if (y == 3 && x >= 2 && x <= 13) return head;
         if (y == 4 && (x == 2 || x == 13)) return head;
