@@ -128,6 +128,8 @@ final class Sheeps {
         int diff = currentGround - targetGround;
         if (diff > 1) return false;
         int tx = Calc.floor(nx), tz = Calc.floor(nz);
+        if (World.get(tx, currentGround, tz) == Items.FENCE) return false;
+        if (World.get(tx, currentGround + 1, tz) == Items.FENCE) return false;
 if (!World.passable(World.get(tx, targetGround - 1, tz))) return false;
 if (!World.passable(World.get(tx, targetGround - 2, tz))) return false;
         return true;
@@ -189,7 +191,7 @@ if (!World.passable(World.get(tx, targetGround - 2, tz))) return false;
             float f = k / 16f;
             int bx = Calc.floor(ex + (tx - ex) * f), by = Calc.floor(ey + (ty - ey) * f), bz = Calc.floor(ez + (tz - ez) * f);
             int id = World.peek(bx, by, bz);
-if (id > World.AIR && id != Items.TORCH) return false;
+if (id > World.AIR && !World.passable(id)) return false;
         }
         return true;
     }

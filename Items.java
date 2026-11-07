@@ -23,13 +23,21 @@ final class Items {
     static final int IRON_SWORD = 31;
     static final int IRON_PICKAXE = 32;
     static final int IRON_AXE = 33;
-    static final int MAX_ID = IRON_AXE;
+    static final int SIGN = 34;
+    static final int DOOR = 35;
+    static final int DOOR_TOP = 36;
+    static final int FENCE = 37;
+    static final int DOOR_OPEN = 38;
+    static final int DOOR_TOP_OPEN = 39;
+    static final int MAX_ID = DOOR_TOP_OPEN;
     static final int STACK = 64;
 
     static final String[] NAMES = { "", "Grass", "Dirt", "", "Stone", "Bricks", "", "Wood", "Leaves", "Scenery",
         "Planks", "Crafting Table", "Cobblestone", "Coal Ore", "Iron Ore", "Stick", "Coal", "Wooden Sword", "Stone Sword",
         "Wool", "Bed", "Wooden Pickaxe", "Stone Pickaxe", "Wooden Axe", "Stone Axe", "Torch", "Bed",
-        "TNT", "Iron Block", "Apple", "Iron Ingot", "Iron Sword", "Iron Pickaxe", "Iron Axe" };
+        "TNT", "Iron Block", "Apple", "Iron Ingot", "Iron Sword", "Iron Pickaxe", "Iron Axe",
+        "Wooden Sign", "Wooden Door", "Wooden Door", "Fence",
+        "Wooden Door", "Wooden Door" };
 
     static final Recipe[] RECIPES = {
         new Recipe(1, 1, new int[] { World.WOOD }, PLANKS, 4),
@@ -52,6 +60,9 @@ final class Items {
         new Recipe(1, 3, new int[] { IRON_INGOT, IRON_INGOT, STICK }, IRON_SWORD, 1),
         new Recipe(3, 3, new int[] { IRON_INGOT, IRON_INGOT, IRON_INGOT, 0, STICK, 0, 0, STICK, 0 }, IRON_PICKAXE, 1),
         new Recipe(2, 3, new int[] { IRON_INGOT, IRON_INGOT, IRON_INGOT, STICK, 0, STICK }, IRON_AXE, 1),
+        new Recipe(3, 2, new int[] { PLANKS, PLANKS, PLANKS, 0, STICK, 0 }, SIGN, 3),
+        new Recipe(2, 3, new int[] { PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, PLANKS }, DOOR, 3),
+        new Recipe(3, 2, new int[] { STICK, PLANKS, STICK, STICK, PLANKS, STICK }, FENCE, 3),
     };
 
     static int durability(int id) {
@@ -96,6 +107,9 @@ final class Items {
             case TORCH:
             case TNT:
             case IRON_BLOCK:
+            case SIGN:
+            case DOOR:
+            case FENCE:
                 return true;
             default:
                 return false;
@@ -144,6 +158,9 @@ final class Items {
 
     private Items() {}
 
+    static boolean isDoorBottom(int id) { return id == DOOR || id == DOOR_OPEN; }
+    static boolean isDoorTop(int id) { return id == DOOR_TOP || id == DOOR_TOP_OPEN; }
+
     static String name(int id) {
         return id > 0 && id <= MAX_ID ? NAMES[id] : "";
     }
@@ -152,6 +169,7 @@ final class Items {
         if (block == World.STONE) return COBBLE;
         if (block == COAL_ORE) return COAL;
         if (block == BED_HEAD) return BED;
+        if (block == DOOR_TOP || block == DOOR_TOP_OPEN || block == DOOR_OPEN) return DOOR;
         return block;
     }
 }

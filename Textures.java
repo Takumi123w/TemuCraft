@@ -22,11 +22,12 @@ static void build() {
     loadSheet();
     buildTorch();
     buildNew();
+    loadItemSheet();
 }
 
 /** Procedural art for blocks and items added after the sprite sheet. */
 private static void buildNew() {
-    for (int id = Items.TNT; id <= Items.MAX_ID; id++) {
+    for (int id = Items.TNT; id < Items.SIGN; id++) {
         for (int band = 0; band < 3; band++) {
             for (int y = 0; y < TEX; y++) {
                 for (int x = 0; x < TEX; x++) {
@@ -72,6 +73,36 @@ private static int torchPixel(int x, int y) {
     if (y >= 2 && y <= 5 && x >= 6 && x <= 9) return y <= 3 ? 0xFFFFE066 : 0xFFFF9020; 
     if (y >= 6 && y <= 14 && (x == 7 || x == 8)) return 0xFF8B5A2B;                   
     return 0xFF2B2B2B;                                                                
+}
+
+private static final String ITEM_SHEET = "/tex/items.png";
+
+/** Splits tex/items.png into the atlas: one 16px column per new block or item, three bands. */
+private static void loadItemSheet() {
+    int n = TEX;
+    int[] ids = { Items.SIGN, Items.DOOR, Items.DOOR_TOP, Items.FENCE, Items.DOOR_OPEN, Items.DOOR_TOP_OPEN };
+    Image img;
+    try {
+        img = Image.createImage(ITEM_SHEET);
+    } catch (java.io.IOException e) {
+        throw new IllegalStateException("missing texture sheet " + ITEM_SHEET + ": " + e);
+    }
+    int w = img.getWidth(), h = img.getHeight();
+    if (w < ids.length * n || h < 3 * n) {
+        throw new IllegalStateException("texture sheet " + ITEM_SHEET + " is " + w + "x" + h
+                + ", needs at least " + (ids.length * n) + "x" + (3 * n));
+    }
+    int[] sheet = new int[w * h];
+    img.getRGB(sheet, 0, w, 0, 0, w, h);
+    for (int k = 0; k < ids.length; k++) {
+        for (int band = 0; band < 3; band++) {
+            int sx = k * n, sy = band * n;
+            int dst = ids[k] * BLOCK + band * n * n;
+            for (int y = 0; y < n; y++) {
+                System.arraycopy(sheet, (sy + y) * w + sx, atlas, dst + y * n, n);
+            }
+        }
+    }
 }
 
 private static void loadSheet() {
@@ -122,7 +153,8 @@ private static void loadSheet() {
 static final String[] NAMES = { "", "grass", "dirt", "", "stone", "bricks", "", "wood", "leaves", "flat",
     "planks", "craft", "cobble", "coal ore", "iron ore", "stick", "coal", "wood sword", "stone sword",
     "wool", "bed", "wood pickaxe", "stone pickaxe", "wood axe", "stone axe", "torch", "bed head",
-    "tnt", "iron block", "apple", "iron ingot", "iron sword", "iron pickaxe", "iron axe" };
+    "tnt", "iron block", "apple", "iron ingot", "iron sword", "iron pickaxe", "iron axe",
+    "sign", "door", "door top", "fence", "door open", "door top open" };
     
     
     private static void buildPlanks() {
@@ -220,6 +252,15 @@ private static int pixel(int id, int x, int y) {
                 return tnt(x, y);
             case Items.IRON_BLOCK:
                 return ironBlock(x, y);
+            case Items.SIGN:
+                return sign(x, y);
+            case Items.DOOR:
+            case Items.DOOR_TOP:
+            case Items.DOOR_OPEN:
+            case Items.DOOR_TOP_OPEN:
+                return door(x, y);
+            case Items.FENCE:
+                return planksLike(x, y);
             default:
                 return 0xFFFF00FF;
         }
@@ -248,6 +289,23 @@ private static int pixel(int id, int x, int y) {
         if (y == 0 || y == TEX - 1 || x == 0 || x == TEX - 1) return 0xFF5A0000;
         if (y >= 6 && y <= 9) return (x % 4 == 0) ? 0xFF2B2B2B : 0xFFEEEEEE;
         return ((x + y) % 5 == 0) ? 0xFFA01818 : 0xFFC02020;
+    }
+
+    private static int sign(int x, int y) {
+        if (x == 0 || y == 0 || x == TEX - 1 || y == TEX - 1) return 0xFF5A3A1E;
+        if (x >= 2 && x <= 13 && y >= 3 && y <= 10) return 0xFFEDE3C4;
+        return 0xFFB8894F;
+    }
+
+    private static int door(int x, int y) {
+        if (x == 0 || y == 0 || x == TEX - 1 || y == TEX - 1) return 0xFF5A3A1E;
+        if ((x == 3 || x == 12) && y > 2 && y < 13) return 0xFF7A5530;
+        if (x == 11 && y == 8) return 0xFFD0D0D0;
+        return 0xFF9C6D3C;
+    }
+
+    private static int planksLike(int x, int y) {
+        return (y % 4 == 0) ? 0xFF7A5530 : 0xFFB8894F;
     }
 
     private static int ironBlock(int x, int y) {

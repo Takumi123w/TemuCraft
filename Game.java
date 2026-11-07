@@ -444,7 +444,8 @@ protected void pointerPressed(int x, int y) {
                 int by = Calc.floor(ny + ((c >> 2) - 1) * 0.8f + 0.65f);
                 int bz = Calc.floor(nz + ((c >> 1) & 1) * 0.6f - 0.3f);
                 if (by < 0) continue;
-                if (!World.passable(World.get(bx, by, bz))) {
+                if (!World.passable(World.get(bx, by, bz))
+                        || (axis != 2 && World.get(bx, by - 1, bz) == Items.FENCE)) {
                     if (axis != 2) continue OUTER;
                     if (kJump && velY > 0f) {
                         velY = -0.1f;
@@ -467,7 +468,8 @@ protected void pointerPressed(int x, int y) {
             int bx = Calc.floor(playerX + (c & 1) * 0.6f - 0.3f);
             int by = Calc.floor(playerY + ((c >> 2) - 1) * 0.8f + 0.65f);
             int bz = Calc.floor(playerZ + ((c >> 1) & 1) * 0.6f - 0.3f);
-            if (by >= 0 && by < World.HEIGHT && World.get(bx, by, bz) != Items.TORCH) {
+            if (by >= 0 && by < World.HEIGHT && World.get(bx, by, bz) != Items.TORCH
+                    && !World.isThin(World.get(bx, by, bz))) {
                 World.set(bx, by, bz, World.AIR);
             }
         }
@@ -578,6 +580,10 @@ if (clickPlace) {
     }
 } else if (hb == Items.TNT && inv.id(held) == Items.TORCH) {
             igniteTnt(Renderer.hovX, Renderer.hovY, Renderer.hovZ);
+        } else if (hb == Items.SIGN) {
+            midlet.editSign(Renderer.hovX, Renderer.hovY, Renderer.hovZ);
+        } else if (Items.isDoorBottom(hb) || Items.isDoorTop(hb)) {
+            toggleDoor(Renderer.hovX, Renderer.hovY, Renderer.hovZ);
         } else {
             int tx = Renderer.hovX + Renderer.nrmX;
             int ty = Renderer.hovY + Renderer.nrmY;
@@ -591,6 +597,13 @@ if (item == Items.BED) {
             && !overlapsPlayer(tx, ty, tz)) {
         World.set(tx, ty, tz, Items.BED);
         World.set(tx + d[0], ty, tz + d[1], Items.BED_HEAD);
+        inv.take(held);
+    }
+} else if (item == Items.DOOR) {
+    int[] d = findDoorSpot(tx, ty, tz);
+    if (d != null && inv.count(held) > 0) {
+        World.set(d[0], d[1], d[2], Items.DOOR);
+        World.set(d[3], d[4], d[5], Items.DOOR_TOP);
         inv.take(held);
     }
 } else if (Items.placeable(item) && inv.count(held) > 0
@@ -664,7 +677,9 @@ private void die() {
         int pl = Items.pickLevel(item);
         int al = Items.axeLevel(item);
         if (isRock(b)) return pl >= 3 ? 5 : (pl == 2 ? 8 : (pl == 1 ? 15 : 30));
-        if (b == World.WOOD || b == Items.PLANKS || b == Items.CRAFT_TABLE) {
+        if (b == World.WOOD || b == Items.PLANKS || b == Items.CRAFT_TABLE
+                || b == Items.SIGN || b == Items.DOOR || b == Items.DOOR_TOP
+                || b == Items.DOOR_OPEN || b == Items.DOOR_TOP_OPEN) {
             return al >= 3 ? 3 : (al == 2 ? 5 : (al == 1 ? 8 : 15));
         }
         if (b == World.LEAVES) return al >= 1 ? 3 : 8;
@@ -686,6 +701,8 @@ private void die() {
         World.set(bx, by, bz, World.AIR);
         int[] p = bedPartner(bx, by, bz, b);
         if (p != null) World.set(p[0], p[1], p[2], World.AIR);
+        if (Items.isDoorBottom(b) && Items.isDoorTop(World.get(bx, by + 1, bz))) World.set(bx, by + 1, bz, World.AIR);
+        if (Items.isDoorTop(b) && Items.isDoorBottom(World.get(bx, by - 1, bz))) World.set(bx, by - 1, bz, World.AIR);
         if (b == World.LEAVES && rng.nextInt(20) == 0) inv.add(Items.APPLE, 1);
         inv.damage(held);
     }
@@ -745,7 +762,34 @@ private void die() {
         }
     }
 
-    private int[] findBedHead(int tx, int ty, int tz) {
+    private void toggleDoor(int x, int y, int z) {
+    int by = Items.isDoorTop(World.get(x, y, z)) ? y - 1 : y;
+    int bot = World.get(x, by, z);
+    int top = World.get(x, by + 1, z);
+    if (!Items.isDoorBottom(bot) || !Items.isDoorTop(top)) return;
+    boolean open = bot == Items.DOOR_OPEN;
+    // Don't close the door on the player.
+    if (open && (overlapsPlayer(x, by, z) || overlapsPlayer(x, by + 1, z))) return;
+    World.set(x, by, z, open ? Items.DOOR : Items.DOOR_OPEN);
+    World.set(x, by + 1, z, open ? Items.DOOR_TOP : Items.DOOR_TOP_OPEN);
+}
+
+private int[] findDoorSpot(int x, int y, int z) {
+    // Bottom at the clicked spot with the top above it, otherwise top at the spot with the bottom below it.
+    int[][] tries = { { x, y, z, x, y + 1, z }, { x, y - 1, z, x, y, z } };
+    for (int i = 0; i < tries.length; i++) {
+        int[] c = tries[i];
+        if (World.get(c[0], c[1], c[2]) == World.AIR
+                && World.get(c[3], c[4], c[5]) == World.AIR
+                && !overlapsPlayer(c[0], c[1], c[2])
+                && !overlapsPlayer(c[3], c[4], c[5])) {
+            return c;
+        }
+    }
+    return null;
+}
+
+private int[] findBedHead(int tx, int ty, int tz) {
     int[] f = bedDir();
     int[][] cand = { f, { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
     for (int i = 0; i < cand.length; i++) {
@@ -934,6 +978,16 @@ if (m3g == null && m3gErr.length() > 0) {
             g.setColor(0xFFFFFF);
             g.drawString(Items.name(Items.dropOf(hb)), W / 2, 40, Graphics.TOP | Graphics.HCENTER);
             g.setFont(Font.getDefaultFont());
+        }
+
+        if (Renderer.hoverValid && World.get(Renderer.hovX, Renderer.hovY, Renderer.hovZ) == Items.SIGN) {
+            String st = World.signText(Renderer.hovX, Renderer.hovY, Renderer.hovZ);
+            if (st.length() > 0) {
+                g.setFont(small);
+                g.setColor(0xFFFFFF);
+                g.drawString(st, W / 2, 52, Graphics.TOP | Graphics.HCENTER);
+                g.setFont(Font.getDefaultFont());
+            }
         }
 
         if (mineTimer > 0 && Renderer.hoverValid) {

@@ -1,3 +1,5 @@
+import java.util.Hashtable;
+import javax.microedition.lcdui.Font;
 import javax.microedition.lcdui.Graphics;
 import javax.microedition.lcdui.Image;
 import javax.microedition.m3g.Appearance;
@@ -30,6 +32,17 @@ private final TriangleStripArray sTsa;
 private final VertexBuffer torchVb;
 private final TriangleStripArray torchTsa;
 private final Transform torchT = new Transform();
+private final VertexBuffer fenceVb;
+private final TriangleStripArray fenceTsa;
+private final Transform fenceT = new Transform();
+private final VertexBuffer[] fenceVbs = new VertexBuffer[16];
+private final TriangleStripArray[] fenceTsas = new TriangleStripArray[16];
+private final VertexBuffer signVb, doorVb, doorOpenVb, plaqueVb;
+private final TriangleStripArray signTsa, doorTsa, doorOpenTsa, plaqueTsa;
+private final Transform thinT = new Transform();
+private final Transform plaqueT = new Transform();
+private final Hashtable plaqueCache = new Hashtable();
+private final Appearance signApp, doorApp, fenceApp;
 static final float TORCH_DRAW2 = 24f * 24f;   
 private static final float SKY_D = 28f;           
 private static final float[] WHITE = { 1f, 1f, 1f };
@@ -327,6 +340,43 @@ torchVb = torchMeshVb();
 int[] tStrips = new int[12];
 for (int i = 0; i < tStrips.length; i++) tStrips[i] = 4;
 torchTsa = new TriangleStripArray(0, tStrips);
+
+fenceVb = fenceMeshVb();
+int[] fStrips = new int[18];
+for (int i = 0; i < fStrips.length; i++) fStrips[i] = 4;
+fenceTsa = new TriangleStripArray(0, fStrips);
+for (int m = 0; m < 16; m++) {
+    float[][] fb = fenceBoxes(m);
+    int[] fc = new int[fb.length];
+    for (int q = 0; q < fc.length; q++) fc[q] = 0x8B5A2B;
+    fenceVbs[m] = texBoxesVb(fb, fc);
+    fenceTsas[m] = boxesTsa(fb.length);
+}
+
+signVb = texBoxesVb(new float[][] {
+    { -0.04f, 0.04f, 0.00f, 0.30f, -0.04f, 0.04f },
+    { -0.45f, 0.45f, 0.30f, 0.85f, -0.03f, 0.03f } },
+    new int[] { 0x8B5A2B, 0xC8A060 });
+signTsa = boxesTsa(2);
+doorVb = texBoxesVb(new float[][] {
+    { -0.50f, 0.50f, 0.00f, 2.00f, -0.06f, 0.06f } },
+    new int[] { 0x9C6D3C });
+doorTsa = boxesTsa(1);
+doorOpenVb = texBoxesVb(new float[][] {
+    { 0.44f, 0.50f, 0.00f, 2.00f, -0.50f, 0.50f } },
+    new int[] { 0x9C6D3C });
+doorOpenTsa = boxesTsa(1);
+plaqueVb = plaqueMeshVb();
+plaqueTsa = new TriangleStripArray(0, new int[] { 4 });
+Image itemSheet;
+try {
+    itemSheet = Image.createImage("/tex/items.png");
+} catch (java.io.IOException e) {
+    throw new IllegalStateException("missing /tex/items.png: " + e);
+}
+signApp = tileApp(itemSheet, 0, 0);
+doorApp = tileApp(itemSheet, 1, 0);
+fenceApp = tileApp(itemSheet, 3, 0);
  
         zm[0] = 1;
         zm[5] = 1;
@@ -353,6 +403,157 @@ private static VertexBuffer torchMeshVb() {
     return vb;
 }
     
+private static VertexBuffer fenceMeshVb() {
+    int totalVerts = 3 * 24;
+    short[] pos = new short[totalVerts * 3];
+    byte[] col = new byte[totalVerts * 4];
+    int wood = 0x8B5A2B;
+    int v = 0;
+    v = zBox(pos, col, v, -0.06f, 0.06f, 0.00f, 0.90f, -0.06f, 0.06f, wood);
+    v = zBox(pos, col, v, -0.50f, 0.50f, 0.30f, 0.38f, -0.03f, 0.03f, wood);
+    v = zBox(pos, col, v, -0.50f, 0.50f, 0.62f, 0.70f, -0.03f, 0.03f, wood);
+
+    VertexArray pa = new VertexArray(totalVerts, 3, 2);
+    pa.set(0, totalVerts, pos);
+    VertexArray ca = new VertexArray(totalVerts, 4, 1);
+    ca.set(0, totalVerts, col);
+
+    VertexBuffer vb = new VertexBuffer();
+    vb.setPositions(pa, 0.01f, null);
+    vb.setColors(ca);
+    return vb;
+}
+
+/** Bit 0 = +x neighbour, bit 1 = -x, bit 2 = +z, bit 3 = -z. */
+private static float[][] fenceBoxes(int mask) {
+    int n = 1;
+    for (int k = 0; k < 4; k++) if ((mask & (1 << k)) != 0) n += 2;
+    float[][] out = new float[n][];
+    out[0] = new float[] { -0.06f, 0.06f, 0.00f, 0.90f, -0.06f, 0.06f };
+    int c = 1;
+    for (int k = 0; k < 4; k++) {
+        if ((mask & (1 << k)) == 0) continue;
+        for (int h = 0; h < 2; h++) {
+            float y0 = h == 0 ? 0.30f : 0.62f;
+            float y1 = y0 + 0.08f;
+            if (k == 0) out[c] = new float[] { 0.00f, 0.50f, y0, y1, -0.03f, 0.03f };
+            else if (k == 1) out[c] = new float[] { -0.50f, 0.00f, y0, y1, -0.03f, 0.03f };
+            else if (k == 2) out[c] = new float[] { -0.03f, 0.03f, y0, y1, 0.00f, 0.50f };
+            else out[c] = new float[] { -0.03f, 0.03f, y0, y1, -0.50f, 0.00f };
+            c++;
+        }
+    }
+    return out;
+}
+
+/** Same geometry as boxesVb, but each face gets the full texture (rgb is unused). */
+private static VertexBuffer texBoxesVb(float[][] boxes, int[] rgb) {
+    int totalVerts = boxes.length * 24;
+    short[] pos = new short[totalVerts * 3];
+    byte[] col = new byte[totalVerts * 4];
+    int v = 0;
+    for (int i = 0; i < boxes.length; i++) {
+        float[] b = boxes[i];
+        v = zBox(pos, col, v, b[0], b[1], b[2], b[3], b[4], b[5], 0xFFFFFF);
+    }
+    short[] uv = new short[totalVerts * 2];
+    for (int i = 0; i < totalVerts; i++) {
+        uv[i * 2] = (short) (i & 1);
+        uv[i * 2 + 1] = (short) ((i >> 1) & 1);
+    }
+    VertexArray pa = new VertexArray(totalVerts, 3, 2);
+    pa.set(0, totalVerts, pos);
+    VertexArray ta = new VertexArray(totalVerts, 2, 2);
+    ta.set(0, totalVerts, uv);
+    VertexBuffer vb = new VertexBuffer();
+    vb.setPositions(pa, 0.01f, null);
+    vb.setTexCoords(0, ta, 1f, null);
+    return vb;
+}
+
+/** One 16px tile cut from the item sheet, applied to a block's faces. */
+private static Appearance tileApp(Image sheet, int col, int band) {
+    Image tile = Image.createImage(sheet, col * Textures.TEX, band * Textures.TEX,
+            Textures.TEX, Textures.TEX, 0);
+    Texture2D t = new Texture2D(new Image2D(Image2D.RGB, tile));
+    t.setFiltering(Texture2D.FILTER_NEAREST, Texture2D.FILTER_NEAREST);
+    t.setWrapping(Texture2D.WRAP_REPEAT, Texture2D.WRAP_REPEAT);
+    t.setBlending(Texture2D.FUNC_REPLACE);
+    PolygonMode p = new PolygonMode();
+    p.setCulling(PolygonMode.CULL_NONE);
+    Appearance a = new Appearance();
+    a.setTexture(0, t);
+    a.setPolygonMode(p);
+    return a;
+}
+
+private static VertexBuffer boxesVb(float[][] boxes, int[] rgb) {
+    int totalVerts = boxes.length * 24;
+    short[] pos = new short[totalVerts * 3];
+    byte[] col = new byte[totalVerts * 4];
+    int v = 0;
+    for (int i = 0; i < boxes.length; i++) {
+        float[] b = boxes[i];
+        v = zBox(pos, col, v, b[0], b[1], b[2], b[3], b[4], b[5], rgb[i]);
+    }
+    VertexArray pa = new VertexArray(totalVerts, 3, 2);
+    pa.set(0, totalVerts, pos);
+    VertexArray ca = new VertexArray(totalVerts, 4, 1);
+    ca.set(0, totalVerts, col);
+    VertexBuffer vb = new VertexBuffer();
+    vb.setPositions(pa, 0.01f, null);
+    vb.setColors(ca);
+    return vb;
+}
+
+private static TriangleStripArray boxesTsa(int n) {
+    int[] s = new int[n * 6];
+    for (int i = 0; i < s.length; i++) s[i] = 4;
+    return new TriangleStripArray(0, s);
+}
+
+/** Flat 0.88 x 0.44 panel in the x-y plane, just in front of a board. Text is drawn on its texture. */
+private static VertexBuffer plaqueMeshVb() {
+    short[] pos = { -42, 36, 4,   42, 36, 4,   -42, 80, 4,   42, 80, 4 };
+    short[] tex = { 0, 1,   1, 1,   0, 0,   1, 0 };
+    VertexArray pa = new VertexArray(4, 3, 2);
+    pa.set(0, 4, pos);
+    VertexArray ta = new VertexArray(4, 2, 2);
+    ta.set(0, 4, tex);
+    VertexBuffer vb = new VertexBuffer();
+    vb.setPositions(pa, 0.01f, null);
+    vb.setTexCoords(0, ta, 1f, null);
+    return vb;
+}
+
+private Appearance plaqueApp(String text) {
+    Appearance cached = (Appearance) plaqueCache.get(text);
+    if (cached != null) return cached;
+    if (plaqueCache.size() >= 16) plaqueCache.clear();
+    Image img = Image.createImage(128, 32);
+    Graphics ig = img.getGraphics();
+    ig.setColor(0x3A2A18);
+    ig.fillRect(0, 0, 128, 32);
+    ig.setColor(0xFFF4D0);
+    ig.setFont(Font.getFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_SMALL));
+    int nl = text.indexOf('\n');
+    String l1 = nl < 0 ? text : text.substring(0, nl);
+    String l2 = nl < 0 ? "" : text.substring(nl + 1);
+    ig.drawString(l1, 4, 2, Graphics.TOP | Graphics.LEFT);
+    if (l2.length() > 0) ig.drawString(l2, 4, 16, Graphics.TOP | Graphics.LEFT);
+    Texture2D tex = new Texture2D(new Image2D(Image2D.RGB, img));
+    tex.setFiltering(Texture2D.FILTER_NEAREST, Texture2D.FILTER_NEAREST);
+    tex.setWrapping(Texture2D.WRAP_CLAMP, Texture2D.WRAP_CLAMP);
+    tex.setBlending(Texture2D.FUNC_REPLACE);
+    PolygonMode p = new PolygonMode();
+    p.setCulling(PolygonMode.CULL_NONE);
+    Appearance a = new Appearance();
+    a.setTexture(0, tex);
+    a.setPolygonMode(p);
+    plaqueCache.put(text, a);
+    return a;
+}
+
 private static VertexBuffer zombie3dMeshVb(boolean hurt) {
     int totalVerts = 6 * 24;
     short[] pos = new short[totalVerts * 3];
@@ -792,6 +993,46 @@ Zombies zs = Renderer.zombies;
     g3d.render(torchVb, torchTsa, plainApp, torchT);
 }
 
+            for (int i = 0; i < World.thinCount(); i++) {
+                int tt = World.thinType(i);
+                int bx = World.thinX(i), by = World.thinY(i), bz = World.thinZ(i);
+                float tx = bx + 0.5f;
+                float ty = by;
+                float tz = bz + 0.5f;
+                float dx = tx - Renderer.px, dy = ty - Renderer.py, dz = tz - Renderer.pz;
+                if (dx * dx + dy * dy + dz * dz > TORCH_DRAW2) continue;
+                thinT.setIdentity();
+                float base = (tt == Items.DOOR || tt == Items.DOOR_OPEN) ? ty + 2 : ty + 1;
+                thinT.postTranslate(tx, -base, tz);
+                if (tt == Items.FENCE) {
+                    int fm = 0;
+                    if (World.peek(bx + 1, by, bz) == Items.FENCE) fm |= 1;
+                    if (World.peek(bx - 1, by, bz) == Items.FENCE) fm |= 2;
+                    if (World.peek(bx, by, bz + 1) == Items.FENCE) fm |= 4;
+                    if (World.peek(bx, by, bz - 1) == Items.FENCE) fm |= 8;
+                    g3d.render(fenceVbs[fm], fenceTsas[fm], fenceApp, thinT);
+                } else if (tt == Items.SIGN) {
+                    g3d.render(signVb, signTsa, signApp, thinT);
+                    String st = World.signText(bx, by, bz);
+                    if (st.length() > 0) {
+                        Appearance pa = plaqueApp(st);
+                        // Turn the panel toward the viewer and set it slightly in front of the boards,
+                        // so the text is readable from whichever side the player is on.
+                        // Fixed orientation: front panel (+z) and back panel (turned 180 degrees, so it reads from behind).
+                        g3d.render(plaqueVb, plaqueTsa, pa, thinT);
+                        plaqueT.setIdentity();
+                        plaqueT.postTranslate(tx, -(ty + 1), tz);
+                        plaqueT.postRotate(180, 0, 1, 0);
+                        g3d.render(plaqueVb, plaqueTsa, pa, plaqueT);
+                        g3d.render(plaqueVb, plaqueTsa, pa, plaqueT);
+                    }
+                } else if (tt == Items.DOOR) {
+                    g3d.render(doorVb, doorTsa, doorApp, thinT);
+                } else if (tt == Items.DOOR_OPEN) {
+                    g3d.render(doorOpenVb, doorOpenTsa, doorApp, thinT);
+                }
+            }
+
             Sheeps sps = Renderer.sheeps;
             if (sps != null) {
                 for (int i = 0; i < Sheeps.MAX; i++) {
@@ -985,14 +1226,14 @@ private int faceBlock(int a, int slice, int ua, int u, int va, int v, int sign) 
     cc[ua] = u;
     cc[va] = v;
     int id = World.peek(cc[0], cc[1], cc[2]);
-    if (id <= World.AIR || id == Items.TORCH) return 0;
+    if (id <= World.AIR || id == Items.TORCH || World.isThin(id)) return 0;
     cc[a] = slice + sign;
     int nb = World.peek(cc[0], cc[1], cc[2]);
 
     
     if (id == World.LEAVES && nb == World.LEAVES) return 0;
     
-    if (nb == World.AIR || nb == World.UNLOADED || nb == Items.TORCH) return id;
+    if (nb == World.AIR || nb == World.UNLOADED || nb == Items.TORCH || World.isThin(nb)) return id;
     return 0;
 }
 

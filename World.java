@@ -20,9 +20,12 @@ static final int AIR = 0, GRASS = 1, DIRT = 2, STONE = 4, BRICKS = 5, WOOD = 7, 
 private static final Random treeRand = new Random();
 static final int FLAT = 9;
 static final int MAX_TORCH = 64;
+static final int MAX_THIN = 256;
 static final int LIGHT_R = 8;                 
 private static final int[] torchPos = new int[MAX_TORCH * 3];
 private static int torchN;
+private static final int[] thinPos = new int[MAX_THIN * 4];
+private static int thinN;
     
     static final int OUT = -1;
     
@@ -79,6 +82,7 @@ final boolean[] urgent = new boolean[SECTIONS];
 
     
     private static final Hashtable saved = new Hashtable();
+private static final Hashtable signs = new Hashtable();
 
     private World() {}
     private static boolean spawnValid;
@@ -88,6 +92,11 @@ static int torchCount() { return torchN; }
 static int torchX(int i) { return torchPos[i * 3]; }
 static int torchY(int i) { return torchPos[i * 3 + 1]; }
 static int torchZ(int i) { return torchPos[i * 3 + 2]; }
+static int thinCount() { return thinN; }
+static int thinX(int i) { return thinPos[i * 4]; }
+static int thinY(int i) { return thinPos[i * 4 + 1]; }
+static int thinZ(int i) { return thinPos[i * 4 + 2]; }
+static int thinType(int i) { return thinPos[i * 4 + 3]; }
 
 static void setSpawn(float x, float y, float z) {
     spawnValid = true;
@@ -104,6 +113,111 @@ static float[] savedSpawn() {
 
 static void moveToArea(int ax, int az) {
     enterArea(ax, az);
+}
+
+private static boolean isListedThin(int id) {
+    return id == Items.FENCE || id == Items.SIGN || id == Items.DOOR || id == Items.DOOR_OPEN;
+}
+
+/** Thin or non-cube blocks: skipped by cube meshing, and the door tops. */
+static boolean isThin(int id) {
+    return isListedThin(id) || id == Items.DOOR_TOP || id == Items.DOOR_TOP_OPEN;
+}
+
+private static void addThin(int x, int y, int z, int type) {
+    if (thinN >= MAX_THIN) return;
+    thinPos[thinN * 4] = x;
+    thinPos[thinN * 4 + 1] = y;
+    thinPos[thinN * 4 + 2] = z;
+    thinPos[thinN * 4 + 3] = type;
+    thinN++;
+}
+
+private static void removeThin(int x, int y, int z) {
+    for (int i = 0; i < thinN; i++) {
+        if (thinPos[i * 4] == x && thinPos[i * 4 + 1] == y && thinPos[i * 4 + 2] == z) {
+            thinN--;
+            System.arraycopy(thinPos, thinN * 4, thinPos, i * 4, 4);
+            return;
+        }
+    }
+}
+
+private static void dropThin(int cx, int cz) {
+    int i = 0;
+    while (i < thinN) {
+        if ((thinPos[i * 4] >> 4) == cx && (thinPos[i * 4 + 2] >> 4) == cz) {
+            thinN--;
+            System.arraycopy(thinPos, thinN * 4, thinPos, i * 4, 4);
+        } else {
+            i++;
+        }
+    }
+}
+
+private static void scanThin(Chunk c) {
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int z = 0; z < CS; z++) {
+            for (int x = 0; x < CS; x++) {
+                int id = c.b[(y << 8) | (z << 4) | x];
+                if (isListedThin(id)) {
+                    addThin((c.cx << 4) + x, y, (c.cz << 4) + z, id);
+                }
+            }
+        }
+    }
+}
+
+static String signKey(int x, int y, int z) {
+    return areaX + "/" + areaZ + "/" + x + "/" + y + "/" + z;
+}
+
+static String signText(int x, int y, int z) {
+    String t = (String) signs.get(signKey(x, y, z));
+    return t == null ? "" : t;
+}
+
+static void setSignText(int x, int y, int z, String text) {
+    String k = signKey(x, y, z);
+    if (text == null || text.length() == 0) signs.remove(k);
+    else signs.put(k, text);
+    saveAll();
+}
+
+private static String escapeSign(String t) {
+    StringBuffer b = new StringBuffer();
+    for (int i = 0; i < t.length(); i++) {
+        char c = t.charAt(i);
+        if (c == '\\') b.append("\\\\");
+        else if (c == '\n') b.append("\\n");
+        else if (c != '\r') b.append(c);
+    }
+    return b.toString();
+}
+
+private static String unescapeSign(String t) {
+    StringBuffer b = new StringBuffer();
+    for (int i = 0; i < t.length(); i++) {
+        char c = t.charAt(i);
+        if (c == '\\' && i + 1 < t.length()) {
+            char n = t.charAt(++i);
+            b.append(n == 'n' ? '\n' : n);
+        } else {
+            b.append(c);
+        }
+    }
+    return b.toString();
+}
+
+private static void readSign(String line) {
+    try {
+        String s = line.substring(5);
+        int sp = s.indexOf(' ');
+        if (sp < 0) return;
+        signs.put(s.substring(0, sp), unescapeSign(s.substring(sp + 1)));
+    } catch (Throwable e) {
+        System.out.println("[world] sign line bad: " + e);
+    }
 }
 
 private static void addTorch(int x, int y, int z) {
@@ -141,6 +255,7 @@ private static void dropTorches(int cx, int cz) {
 }
 
 private static void scanTorches(Chunk c) {
+    scanThin(c);
     for (int y = 0; y < HEIGHT; y++) {
         for (int z = 0; z < CS; z++) {
             for (int x = 0; x < CS; x++) {
@@ -232,6 +347,9 @@ c.modified = true;
 if (old == Items.TORCH) removeTorch(x, y, z);
 if (b == Items.TORCH) addTorch(x, y, z);
 if (old == Items.TORCH || b == Items.TORCH) relight(x, y, z);
+if (isListedThin(old)) removeThin(x, y, z);
+if (isListedThin(b)) addThin(x, y, z, b);
+if (old == Items.SIGN) signs.remove(signKey(x, y, z));
     int sy = y >> 4;
     markDirty(c, sy);
 
@@ -467,6 +585,7 @@ private static void unloadAt(int i) {
     Chunk c = list[i];
     saveChunk(c);
     dropTorches(c.cx, c.cz);
+    dropThin(c.cx, c.cz);
     table.remove(new Integer(key(c.cx, c.cz)));
     if (last == c) last = null;
     list[i] = list[--count];
@@ -499,7 +618,7 @@ private static void unloadAt(int i) {
     }
 
 static boolean passable(int id) {
-    return id == AIR || id == Items.TORCH;
+    return id == AIR || id == Items.TORCH || id == Items.DOOR_OPEN || id == Items.DOOR_TOP_OPEN;
 }
     
 static void deleteSave() {
@@ -512,6 +631,8 @@ static void deleteSave() {
     table.clear();
     last = null;
     torchN = 0;
+    thinN = 0;
+    signs.clear();
     writeFile();
 }
 
@@ -908,6 +1029,11 @@ static void loadOptions() {
     sb.append('\n');
 }
 if (invLine != null) sb.append("inv ").append(invLine).append('\n');
+            Enumeration se = signs.keys();
+            while (se.hasMoreElements()) {
+                String k = (String) se.nextElement();
+                sb.append("sign ").append(k).append(' ').append(escapeSign((String) signs.get(k))).append('\n');
+            }
             Enumeration e = saved.elements();
             while (e.hasMoreElements()) sb.append((String) e.nextElement()).append('\n');
             byte[] data = sb.toString().getBytes();
@@ -1002,6 +1128,10 @@ private static void readSpawn(String line) {
                 if (line.startsWith("spawn ")) {
                 readSpawn(line);
                 continue;
+                }
+                if (line.startsWith("sign ")) {
+                    readSign(line);
+                    continue;
                 }
                 if (line.startsWith("inv ")) {
                     invLine = line.substring(4);
