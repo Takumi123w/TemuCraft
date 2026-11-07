@@ -13,13 +13,17 @@ final class MenuScreen extends Canvas implements CommandListener {
     private final boolean canContinue;
 
     
+    // 0 main, 1 options, 2 world list, 3 world actions, 4 delete confirm
     private int mode;
     private int sel;
+    private int picked;                                   // world slot chosen in the list
+    private final boolean[] worldHas = new boolean[World.MAX_WORLDS];
     
     private int scroll;
 
     
     private int pressIdx = -1;
+    private int pressArrow = -1;                          // Up (0) / Down (1) button under the finger
     private int pressY;
     private int lastY;
     private boolean dragging;
@@ -46,12 +50,35 @@ private static int next(int[] vals, int cur) {
     MenuScreen(Minecraft4kMidlet midlet) {
         this.midlet = midlet;
         World.loadOptions();
-        canContinue = World.hasSave();
+        Game.autoTouch(hasPointerEvents());
+        canContinue = World.hasSave(World.lastWorld());
         addCommand(selectCmd);
         setCommandListener(this);
     }
 
+    private void refreshWorlds() {
+        for (int i = 0; i < worldHas.length; i++) worldHas[i] = World.hasSave(i);
+    }
+
+    private String heading() {
+        if (mode == 1) return "Options";
+        if (mode == 2) return "Select World";
+        if (mode == 3) return "World " + (picked + 1);
+        if (mode == 4) return "Delete World " + (picked + 1) + "?";
+        return null;
+    }
+
     private String[] items() {
+        if (mode == 2) {
+            String[] w = new String[World.MAX_WORLDS + 1];
+            for (int i = 0; i < World.MAX_WORLDS; i++) {
+                w[i] = "World " + (i + 1) + (worldHas[i] ? "" : " (new)");
+            }
+            w[World.MAX_WORLDS] = "Back";
+            return w;
+        }
+        if (mode == 3) return new String[] { "Play", "Delete world", "Back" };
+        if (mode == 4) return new String[] { "Yes, delete it", "Cancel" };
         if (mode == 1) {
             return new String[] {
                 "Scenery: " + (World.sceneryOn ? "ON" : "OFF"),
@@ -60,10 +87,12 @@ private static int next(int[] vals, int cur) {
                 "FOV: " + M3GRenderer.fov,
                 "Tex radius: " + (M3GRenderer.texDist >= 9999 ? "All" : String.valueOf(M3GRenderer.texDist)),
                 "FPS limit: " + (Game.targetFps == 0 ? "Max" : String.valueOf(Game.targetFps)),
+                "Touch buttons: " + (Game.touchOn ? "ON" : "OFF"),
+                "Auto-jump: " + (Game.autoJump ? "ON" : "OFF"),
                 "Done"
             };
         }
-        return new String[] { canContinue ? "Continue" : "Play", "New world", "Settings", "Quit Game" };
+        return new String[] { canContinue ? "Continue" : "Play", "Worlds", "Settings", "Quit Game" };
     }
 
     
@@ -93,6 +122,49 @@ private static int next(int[] vals, int cur) {
         int avail = getHeight() - top() - (hintFont.getHeight() + 6);
         int v = avail / rowH();
         return v < 1 ? 1 : v;
+    }
+
+    private int shownEnd() {
+        return Math.min(items().length, scroll + visible());
+    }
+
+    /** The "^" is shown when the list is scrolled down; on touch devices also whenever there is an item above. */
+    private boolean upShown() {
+        return scroll > 0 || (hasPointerEvents() && sel > 0);
+    }
+
+    private boolean downShown() {
+        int n = items().length;
+        return shownEnd() < n || (hasPointerEvents() && sel < n - 1);
+    }
+
+    private int upY() {
+        return top() - hintFont.getHeight() - 2;
+    }
+
+    private int downY() {
+        return btnY(shownEnd() - 1) + rowH() - 2;
+    }
+
+    /** 0 = the "^", 1 = the "v", -1 = none. Generous hit boxes, but they sit in gaps that are already free. */
+    private int arrowAt(int x, int y) {
+        int half = Math.max(28, bw() / 6);
+        if (x < getWidth() / 2 - half || x >= getWidth() / 2 + half) return -1;
+        int hh = hintFont.getHeight();
+        if (upShown() && y >= upY() - 6 && y < top()) return 0;
+        int rowBottom = btnY(shownEnd() - 1) + bh();
+        if (downShown() && y >= rowBottom && y < downY() + hh + 6) return 1;
+        return -1;
+    }
+
+    /** Moves the selection one step (no wrap) so the list scrolls along with it. */
+    private void step(int d) {
+        int n = items().length;
+        int ns = sel + d;
+        if (ns < 0 || ns >= n) return;
+        sel = ns;
+        keepSelVisible();
+        repaint();
     }
 
     private int maxScroll() {
@@ -138,8 +210,8 @@ private static int next(int[] vals, int cur) {
         g.setColor(0xFFFF55);
         g.drawString("Dig deep!", lx + lw - 6, logoY + titleFont.getHeight() - 4, Graphics.TOP | Graphics.LEFT);
 
-        if (mode == 1) {
-            drawShadowed(g, "Options", W / 2, logoY + titleFont.getHeight() + 8, 0xFFFFFF, 0x3F3F3F, 1,
+        if (mode != 0) {
+            drawShadowed(g, heading(), W / 2, logoY + titleFont.getHeight() + 8, 0xFFFFFF, 0x3F3F3F, 1,
                     Graphics.TOP | Graphics.HCENTER);
         }
 
@@ -169,12 +241,12 @@ private static int next(int[] vals, int cur) {
 
         
         g.setFont(hintFont);
-        if (scroll > 0) {
-            drawShadowed(g, "^", W / 2, top() - hintFont.getHeight() - 2, 0xFFFFFF, 0x3F3F3F, 1,
+        if (upShown()) {
+            drawShadowed(g, "^", W / 2, upY(), pressArrow == 0 ? 0xFFFFA0 : 0xFFFFFF, 0x3F3F3F, 1,
                     Graphics.TOP | Graphics.HCENTER);
         }
-        if (end < items.length) {
-            drawShadowed(g, "v", W / 2, btnY(end - 1) + rowH() - 2, 0xFFFFFF, 0x3F3F3F, 1,
+        if (downShown()) {
+            drawShadowed(g, "v", W / 2, downY(), pressArrow == 1 ? 0xFFFFA0 : 0xFFFFFF, 0x3F3F3F, 1,
                     Graphics.TOP | Graphics.HCENTER);
         }
 
@@ -227,7 +299,7 @@ private static int next(int[] vals, int cur) {
             activate();
             return;
         }
-        if (mode == 1 && k == '0') {
+        if (mode != 0 && k == '0') {
             back();
             return;
         }
@@ -275,12 +347,21 @@ private static int next(int[] vals, int cur) {
     
     protected void pointerPressed(int x, int y) {
         pressIdx = itemAt(x, y);
+        pressArrow = arrowAt(x, y);
         pressY = y;
         lastY = y;
         dragging = false;
+        if (pressArrow >= 0) repaint();           // show the button as pressed
     }
 
     protected void pointerDragged(int x, int y) {
+        if (pressArrow >= 0) {
+            if (arrowAt(x, y) != pressArrow) {    // finger slid off the button
+                pressArrow = -1;
+                repaint();
+            }
+            return;
+        }
         if (!dragging && Math.abs(y - pressY) < 8) return;
         dragging = true;
         int step = rowH() / 2;
@@ -292,10 +373,21 @@ private static int next(int[] vals, int cur) {
             lastY = y;
         }
         clampScroll();
+        // keep the highlighted row inside the view, otherwise paint() would scroll straight back to it
+        int v = visible();
+        if (sel < scroll) sel = scroll;
+        if (sel >= scroll + v) sel = scroll + v - 1;
         repaint();
     }
 
     protected void pointerReleased(int x, int y) {
+        if (pressArrow >= 0) {
+            int a = pressArrow;
+            pressArrow = -1;
+            if (arrowAt(x, y) == a) step(a == 0 ? -1 : 1);
+            repaint();
+            return;
+        }
         if (dragging) {
             dragging = false;
             return;
@@ -310,14 +402,59 @@ private static int next(int[] vals, int cur) {
     }
 
     private void back() {
-        mode = 0;
-        sel = 2;
+        if (mode == 4) {
+            mode = 3;
+            sel = 1;
+        } else if (mode == 3) {
+            mode = 2;
+            sel = picked;
+        } else if (mode == 2) {
+            mode = 0;
+            sel = 1;
+        } else {
+            mode = 0;
+            sel = 2;
+        }
         scroll = 0;
         keepSelVisible();
         repaint();
     }
 
+    private void go(int newMode, int newSel) {
+        mode = newMode;
+        sel = newSel;
+        scroll = 0;
+        repaint();
+    }
+
     private void activate() {
+    if (mode == 2) {
+        if (sel >= World.MAX_WORLDS) {
+            back();
+        } else if (worldHas[sel]) {
+            picked = sel;
+            go(3, 0);
+        } else {
+            midlet.startGame(sel, true);      // empty slot: create a new world there
+        }
+        return;
+    }
+    if (mode == 3) {
+        if (sel == 0) midlet.startGame(picked, false);
+        else if (sel == 1) go(4, 1);          // default to Cancel
+        else back();
+        return;
+    }
+    if (mode == 4) {
+        if (sel == 0) {
+            World.deleteWorld(picked);
+            refreshWorlds();
+            go(2, picked);
+        } else {
+            back();
+        }
+        return;
+    }
     if (mode == 1) {
         if (sel == 0) {
             World.setScenery(!World.sceneryOn);
@@ -335,6 +472,13 @@ private static int next(int[] vals, int cur) {
         } else if (sel == 5) {
             Game.targetFps = next(FPSV, Game.targetFps);
             World.saveOptions();
+        } else if (sel == 6) {
+            Game.touchOn = !Game.touchOn;
+            Game.touchSet = true;
+            World.saveOptions();
+        } else if (sel == 7) {
+            Game.autoJump = !Game.autoJump;
+            World.saveOptions();
         } else {
             back();
             return;
@@ -343,8 +487,15 @@ private static int next(int[] vals, int cur) {
         return;
     }
         switch (sel) {
-            case 0: midlet.startGame(false); break;
-            case 1: midlet.startGame(true); break;
+            case 0: {
+                int w = World.lastWorld();
+                midlet.startGame(w, !canContinue);   // no save in the last world yet: start a new one
+                break;
+            }
+            case 1:
+                refreshWorlds();
+                go(2, World.lastWorld());
+                break;
             case 2:
                 mode = 1;
                 sel = 0;

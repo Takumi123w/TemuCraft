@@ -29,8 +29,8 @@ public class Minecraft4kMidlet extends MIDlet {
     }
 
     
-    void startGame(boolean fresh) {
-        if (fresh) World.deleteSave();
+    void startGame(int slot, boolean fresh) {
+        World.selectWorld(slot, fresh);
         game = new Game(this);
         Display.getDisplay(this).setCurrent(game);
         new Thread(game).start();

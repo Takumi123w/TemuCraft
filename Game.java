@@ -11,6 +11,33 @@ final class Game extends Canvas implements Runnable, CommandListener {
     static int targetFps = 30;
     static final int PHYS_MS = 10;
     static boolean showInfo = false;
+
+    // On-screen touch controls. touchSet becomes true once the player picks a value in Options;
+    // until then they are on only when the device reports pointer support.
+    static boolean touchOn = false;
+    static boolean touchSet = false;
+    // Hop up one-block steps by walking into them (the Jump button still works)
+    static boolean autoJump = true;
+    private boolean grounded;
+
+    static void autoTouch(boolean hasPointer) {
+        if (!touchSet) touchOn = hasPointer;
+    }
+
+    // Pocket Edition style: d-pad with jump in the middle, pause at the top, tappable hotbar,
+    // tap = place/attack, hold = mine, drag = look.
+    private static final int T_UP = 0, T_DOWN = 1, T_LEFT = 2, T_RIGHT = 3, T_JUMP = 4,
+            T_PAUSE = 5, T_COUNT = 6;
+    private static final float LOOK_SENS = 0.012f;   // radians per dragged pixel
+    private static final int TAP_MS = 250;
+    private final int[] tr = new int[4];             // scratch rect: x, y, w, h
+    private int touchBtn = -1;                       // button under the finger, or -1
+    private boolean touchLook;                       // finger is on the free area
+    private boolean touchDragged;
+    private int touchX, touchY, touchDownX, touchDownY;
+    private long touchDownAt;
+    private Image touchImg, touchImgOn;
+    private int touchImgSize;
     static final int SZ = 18;
     static final int GX = 4 + 2 * SZ;
     static final int GY = 16;
@@ -105,6 +132,7 @@ final class Game extends Canvas implements Runnable, CommandListener {
         addCommand(selectCmd);
         setCommandListener(this);
         World.init();
+        autoTouch(hasPointerEvents());
         float[] s = World.savedPlayer();
         if (s != null) {
             restorePending = true;
@@ -378,8 +406,217 @@ private void moveCursor(int dx, int dy) {
         if (best >= 0) invSel = best;
     }
 
+    // ---- touch controls (Pocket Edition style) ---------------------------
+
+    private volatile boolean tapPending;             // resolved on the game thread (place or attack)
+
+    private int tsz() {
+        int s = Math.min(getWidth(), getHeight()) / 6;
+        if (s < 24) s = 24;
+        if (s > 44) s = 44;
+        return s;
+    }
+
+    private int hbX() {
+        return (getWidth() - SZ * Inventory.HOTBAR) / 2;
+    }
+
+    private int hbY() {
+        return getHeight() - SZ - 2;
+    }
+
+    /** Fills r with the rectangle of touch button i. */
+    private void touchRect(int i, int[] r) {
+        int W = getWidth(), H = getHeight();
+        int s = tsz(), g = 2;
+        int floor = H - SZ - 14;                  // stay clear of the hotbar and hearts
+        int top = floor - 3 * s - 2 * g;          // d-pad block, bottom-left
+        int c0 = 4, c1 = 4 + s + g, c2 = 4 + 2 * (s + g);
+        int r0 = top, r1 = top + s + g, r2 = top + 2 * (s + g);
+        int x = 0, y = 0, w = s, h = s;
+        switch (i) {
+            case T_UP: x = c1; y = r0; break;
+            case T_DOWN: x = c1; y = r2; break;
+            case T_LEFT: x = c0; y = r1; break;
+            case T_RIGHT: x = c2; y = r1; break;
+            case T_JUMP: x = c1; y = r1; break;                          // middle of the d-pad
+            default: w = h = s * 3 / 4; x = (W - w) / 2; y = 4; break;   // T_PAUSE, top centre
+        }
+        r[0] = x; r[1] = y; r[2] = w; r[3] = h;
+    }
+
+    private int touchAt(int px, int py) {
+        for (int i = 0; i < T_COUNT; i++) {
+            touchRect(i, tr);
+            if (px >= tr[0] && px < tr[0] + tr[2] && py >= tr[1] && py < tr[1] + tr[3]) return i;
+        }
+        return -1;
+    }
+
+    private void touchHold(int b, boolean d) {
+        switch (b) {
+            case T_UP: kFwd = d; break;
+            case T_DOWN: kBack = d; break;
+            case T_LEFT: kLeft = d; break;
+            case T_RIGHT: kRight = d; break;
+            case T_JUMP: kJump = d; break;
+            default: break;
+        }
+    }
+
+    private void touchPress(int b) {
+        if (b == T_PAUSE) {
+            midlet.showMenu();
+            return;
+        }
+        touchBtn = b;
+        touchHold(b, true);
+    }
+
+    /** Taps on the hotbar pick a slot; the last box opens the inventory. */
+    private boolean touchHotbar(int x, int y) {
+        int hx = hbX(), hy = hbY();
+        if (y < hy - 3) return false;
+        if (x >= hx && x < hx + SZ * Inventory.HOTBAR) {
+            held = (x - hx) / SZ;
+            invBtn = false;
+            repaint();
+            return true;
+        }
+        int bx = hx + Inventory.HOTBAR * SZ + 2;
+        if (x >= bx && x < bx + SZ) {
+            openInv(0);
+            repaint();
+            return true;
+        }
+        return false;
+    }
+
+    private void touchRelease() {
+        if (touchBtn >= 0) touchHold(touchBtn, false);
+        touchBtn = -1;
+        if (touchLook) {
+            kMine = false;
+            // PE controls: a quick tap places a block / uses / attacks, holding mines
+            if (!touchDragged && System.currentTimeMillis() - touchDownAt < TAP_MS) tapPending = true;
+        }
+        touchLook = false;
+        touchDragged = false;
+    }
+
+    private boolean entityAhead() {
+        return zombies.target(playerX, playerY, playerZ, fwdX(), fwdY(), fwdZ()) >= 0
+                || sheeps.target(playerX, playerY, playerZ, fwdX(), fwdY(), fwdZ()) >= 0;
+    }
+
+    /** Game thread: turn a finished tap into an action, and start mining once the hold is long enough. */
+    private void touchUpdate() {
+        if (tapPending) {
+            tapPending = false;
+            if (entityAhead()) clickMine = true;
+            else clickPlace = true;
+        }
+        if (touchLook && !touchDragged && !kMine && System.currentTimeMillis() - touchDownAt >= TAP_MS) {
+            kMine = true;
+            if (!touchLook) kMine = false;         // finger lifted in the meantime
+        }
+    }
+
+    private void drawTouch(Graphics g, int W, int H) {
+        int s = tsz();
+        if (touchImg == null || touchImgSize != s) {
+            int[] a = new int[s * s], b = new int[s * s];
+            for (int i = 0; i < a.length; i++) {
+                a[i] = 0x66202020;
+                b[i] = 0x99C0C0C0;
+            }
+            touchImg = Image.createRGBImage(a, s, s, true);
+            touchImgOn = Image.createRGBImage(b, s, s, true);
+            touchImgSize = s;
+        }
+        for (int i = 0; i < T_COUNT; i++) {
+            touchRect(i, tr);
+            int x = tr[0], y = tr[1], w = tr[2], h = tr[3];
+            boolean on = i == touchBtn;
+            if (w == s) {
+                g.drawImage(on ? touchImgOn : touchImg, x, y, Graphics.TOP | Graphics.LEFT);
+            } else {
+                g.setColor(on ? 0xA0A0A0 : 0x303030);
+                g.fillRect(x, y, w, h);
+            }
+            g.setColor(0xFFFFFF);
+            g.drawRect(x, y, w - 1, h - 1);
+            int cx = x + w / 2, cy = y + h / 2, a = s / 5;
+            if (i == T_UP) {
+                g.fillTriangle(cx, cy - a, cx - a, cy + a, cx + a, cy + a);
+            } else if (i == T_DOWN) {
+                g.fillTriangle(cx, cy + a, cx - a, cy - a, cx + a, cy - a);
+            } else if (i == T_LEFT) {
+                g.fillTriangle(cx - a, cy, cx + a, cy - a, cx + a, cy + a);
+            } else if (i == T_RIGHT) {
+                g.fillTriangle(cx + a, cy, cx - a, cy - a, cx - a, cy + a);
+            } else if (i == T_JUMP) {
+                int b = a * 2 / 3;                 // two stacked chevrons
+                g.fillTriangle(cx, cy - a, cx - a, cy - a + b + 2, cx + a, cy - a + b + 2);
+                g.fillTriangle(cx, cy, cx - a, cy + b + 2, cx + a, cy + b + 2);
+            } else {
+                int bw = Math.max(2, w / 6);       // pause: two bars
+                g.fillRect(cx - bw - 1, cy - a, bw, 2 * a);
+                g.fillRect(cx + 1, cy - a, bw, 2 * a);
+            }
+        }
+    }
+
+    protected void pointerDragged(int x, int y) {
+        if (invOpen || !touchOn) return;
+        if (touchLook) {
+            if (!touchDragged && Math.abs(x - touchDownX) + Math.abs(y - touchDownY) < 8) return;
+            if (!touchDragged) {
+                touchDragged = true;
+                kMine = false;                     // dragging looks around instead of mining
+            }
+            // like a mouse: drag right = turn right, drag down = look down
+            yaw -= (x - touchX) * LOOK_SENS;
+            pitch -= (y - touchY) * LOOK_SENS;
+            if (pitch < -1.57f) pitch = -1.57f;
+            if (pitch > 1.57f) pitch = 1.57f;
+            touchX = x;
+            touchY = y;
+        } else if (touchBtn >= 0 && touchBtn <= T_JUMP) {
+            int b = touchAt(x, y);                 // slide between the d-pad buttons
+            if (b != touchBtn) {
+                touchHold(touchBtn, false);
+                if (b >= 0 && b <= T_JUMP) {
+                    touchBtn = b;
+                    touchHold(b, true);
+                } else {
+                    touchBtn = -1;
+                }
+            }
+        }
+    }
+
+    protected void pointerReleased(int x, int y) {
+        if (invOpen || !touchOn) return;
+        touchRelease();
+    }
+
 protected void pointerPressed(int x, int y) {
-        if (!invOpen) return;
+        if (!invOpen) {
+            if (!touchOn) return;
+            if (touchHotbar(x, y)) return;
+            int b = touchAt(x, y);
+            if (b >= 0) {
+                touchPress(b);
+            } else {
+                touchLook = true;                  // free area: tap = place/attack, hold = mine, drag = look
+                touchDragged = false;
+                touchX = touchDownX = x;
+                touchY = touchDownY = y;
+                touchDownAt = System.currentTimeMillis();
+            }
+            return;
+        }
 
         if (askOpen) {
             int bx = getWidth() / 2 - 40, by = getHeight() / 2 - 20;
@@ -433,6 +670,11 @@ protected void pointerPressed(int x, int y) {
         velZ += Renderer.cosYaw * inputZ - Renderer.sinYaw * inputX;
         velY += 0.003f;
 
+        boolean moving = inputX != 0f || inputZ != 0f;
+        boolean wasGrounded = grounded;
+        boolean stepUp = false;
+        grounded = false;
+
         OUTER:
         for (int axis = 0; axis < 3; axis++) {
             float nx = playerX + velX * (((axis + 1) % 3) / 2);
@@ -446,7 +688,15 @@ protected void pointerPressed(int x, int y) {
                 if (by < 0) continue;
                 if (!World.passable(World.get(bx, by, bz))
                         || (axis != 2 && World.get(bx, by - 1, bz) == Items.FENCE)) {
-                    if (axis != 2) continue OUTER;
+                    if (axis != 2) {
+                        // walked into a wall: hop up if it is a one block step with room above
+                        if (autoJump && moving && wasGrounded
+                                && freeAt(nx, ny - 1f, nz) && freeAt(playerX, playerY - 1f, playerZ)) {
+                            stepUp = true;
+                        }
+                        continue OUTER;
+                    }
+                    if (velY > 0f) grounded = true;
                     if (kJump && velY > 0f) {
                         velY = -0.1f;
                         break OUTER;
@@ -460,6 +710,19 @@ protected void pointerPressed(int x, int y) {
             playerY = ny;
             playerZ = nz;
         }
+        if (stepUp && velY >= 0f) velY = -0.1f;
+    }
+
+    /** True if the player's body fits at (x, y, z) - the same test the movement code uses for walls. */
+    private boolean freeAt(float x, float y, float z) {
+        for (int c = 0; c < 12; c++) {
+            int bx = Calc.floor(x + (c & 1) * 0.6f - 0.3f);
+            int by = Calc.floor(y + ((c >> 2) - 1) * 0.8f + 0.65f);
+            int bz = Calc.floor(z + ((c >> 1) & 1) * 0.6f - 0.3f);
+            if (by < 0) continue;
+            if (!World.passable(World.get(bx, by, bz)) || World.get(bx, by - 1, bz) == Items.FENCE) return false;
+        }
+        return true;
     }
 
 
@@ -520,6 +783,7 @@ protected void pointerPressed(int x, int y) {
 
     
     private void processClicks() {
+        if (touchOn) touchUpdate();
 
         boolean hitEntity = false;
         if (clickMine) {
@@ -576,7 +840,7 @@ if (clickPlace) {
     if (dayTime >= 12000 && dayTime < 23800) {
         dayTime = 0;
         wakeStart = System.currentTimeMillis();
-        World.setSpawn(Renderer.hovX + 0.5f, Renderer.hovY + 2f, Renderer.hovZ + 0.5f);
+        World.setSpawn(Renderer.hovX + 0.5f, Renderer.hovY - 2f, Renderer.hovZ + 0.5f);
     }
 } else if (hb == Items.TNT && inv.id(held) == Items.TORCH) {
             igniteTnt(Renderer.hovX, Renderer.hovY, Renderer.hovZ);
@@ -1044,6 +1308,7 @@ if (invBtn) {
             g.setColor(i < hp ? 0xD01010 : 0x400000);
             g.fillRect(hx + i * 9, hy - 9, 7, 7);
         }
+        if (touchOn) drawTouch(g, W, H);
         if (hurtFrames > 0) {
             g.setColor(0xFF0000);
             g.drawRect(0, 0, W - 1, H - 1);

@@ -31,8 +31,11 @@ private static int thinN;
     
     static final int UNLOADED = -2;
 
-    private static final long SEED = 18295169L;
-    private static final String FILE_NAME = "mc4kworld.txt";
+    private static final long DEFAULT_SEED = 18295169L;
+    private static long seed = DEFAULT_SEED;
+    private static final String FILE_NAME = "mc4kworld.txt";   // world slot 0 (also the old single save)
+    static final int MAX_WORLDS = 5;
+    private static int slot;                                   // world currently loaded
     private static final int MAX_CHUNKS = 16;
     
     private static final float EDGE = 0.5f;
@@ -68,8 +71,14 @@ final boolean[] urgent = new boolean[SECTIONS];
     private static int areaX, areaZ;
     
     private static final int SHIFT = AREA - 1;
-    private static final float NOFF_X = (int) ((SEED >>> 8) & 511) + 0.25f;
-    private static final float NOFF_Z = (int) ((SEED >>> 20) & 511) + 0.25f;
+    private static float noffX = (int) ((DEFAULT_SEED >>> 8) & 511) + 0.25f;
+    private static float noffZ = (int) ((DEFAULT_SEED >>> 20) & 511) + 0.25f;
+
+    private static void applySeed(long s) {
+        seed = s;
+        noffX = (int) ((s >>> 8) & 511) + 0.25f;
+        noffZ = (int) ((s >>> 20) & 511) + 0.25f;
+    }
 
     
     private static boolean pValid;
@@ -605,10 +614,17 @@ private static void unloadAt(int i) {
 
     
     static boolean hasSave() {
-        if (saved.size() > 0) return true;
+        return hasSave(slot);
+    }
+
+    /** True if world slot s has a save file with content. */
+    static boolean hasSave(int s) {
+        if (s == slot && saved.size() > 0) return true;
         FileConnection fc = null;
         try {
-            fc = (FileConnection) Connector.open(filePath(), Connector.READ);
+            String p = pathFor(s);
+            if (p == null) return false;
+            fc = (FileConnection) Connector.open(p, Connector.READ);
             return fc.exists() && fc.fileSize() > 13;   
         } catch (Throwable t) {
             return false;
@@ -621,7 +637,54 @@ static boolean passable(int id) {
     return id == AIR || id == Items.TORCH || id == Items.DOOR_OPEN || id == Items.DOOR_TOP_OPEN;
 }
     
+static int currentSlot() {
+    return slot;
+}
+
+private static int lastWorld;
+
+/** The world the player had open last time (used by the menu's Continue). */
+static int lastWorld() {
+    return lastWorld;
+}
+
+/** Make slot s the loaded world. Game's constructor (World.init) then reads its file. */
+static void selectWorld(int s, boolean fresh) {
+    if (s < 0 || s >= MAX_WORLDS) s = 0;
+    slot = s;
+    clearMemory();
+    applySeed(DEFAULT_SEED);
+    if (fresh) {
+        // every new world gets its own terrain
+        applySeed((new Random()).nextLong() & 0x7FFFFFFFL);
+        writeFile();
+    }
+    lastWorld = s;
+    saveOptions();   // remembers the last played world
+}
+
+/** Delete world slot s from storage. */
+static void deleteWorld(int s) {
+    if (s == slot) clearMemory();
+    FileConnection fc = null;
+    try {
+        String p = pathFor(s);
+        if (p == null) return;
+        fc = (FileConnection) Connector.open(p, Connector.READ_WRITE);
+        if (fc.exists()) fc.delete();
+    } catch (Throwable t) {
+        System.out.println("[world] delete failed: " + t);
+    } finally {
+        try { if (fc != null) fc.close(); } catch (Throwable t) { }
+    }
+}
+
 static void deleteSave() {
+    clearMemory();
+    writeFile();
+}
+
+private static void clearMemory() {
     saved.clear();
     invLine = null;
     pValid = false;
@@ -633,13 +696,12 @@ static void deleteSave() {
     torchN = 0;
     thinN = 0;
     signs.clear();
-    writeFile();
 }
 
 private static int terrainH(int gx, int gz) {
     float wx = areaX * SHIFT + gx;
     float wz = areaZ * SHIFT + gz;
-    return Calc.round(32f + Noise.noise(wx / 16f + NOFF_X, wz / 16f + NOFF_Z) * 12f);
+    return Calc.round(32f + Noise.noise(wx / 16f + noffX, wz / 16f + noffZ) * 12f);
 }
 
     
@@ -729,7 +791,7 @@ private static void generate(Chunk c) {
 
     
 private static void placeTree(int ax, int az) {
-        treeRand.setSeed(SEED ^ ((long) ax * 73856093L) ^ ((long) az * 19349663L));
+        treeRand.setSeed(seed ^((long) ax * 73856093L) ^ ((long) az * 19349663L));
         if (treeRand.nextInt(4) != 0) return;
 
         int tx = ax * 8 + 4 + (treeRand.nextInt(4) - 2) - areaX * SHIFT;
@@ -831,9 +893,24 @@ private static void placeTree(int ax, int az) {
 
     
     private static String optPath() {
-        String p = filePath();
-        if (p == null) return null;
-        return p.substring(0, p.length() - FILE_NAME.length()) + OPT_NAME;
+        if (filePath() == null) return null;
+        return basePath + OPT_NAME;   // options are shared by all worlds
+    }
+
+    private static String fileName(int s) {
+        return s == 0 ? FILE_NAME : "mc4kworld" + s + ".txt";
+    }
+
+    private static String pathFor(int s) {
+        if (filePath() == null) return null;
+        return basePath + fileName(s);
+    }
+
+    private static boolean anyWorldAt(String root) {
+        for (int s = 0; s < MAX_WORLDS; s++) {
+            if (fileExists(root + fileName(s))) return true;
+        }
+        return false;
     }
 
 static void loadOptions() {
@@ -871,6 +948,14 @@ static void loadOptions() {
                     M3GRenderer.texDist = Integer.parseInt(line.substring(8).trim());
                 } else if (line.startsWith("targetFps ")) {
                     Game.targetFps = Integer.parseInt(line.substring(10).trim());
+                } else if (line.startsWith("autoJump ")) {
+                    Game.autoJump = line.substring(9).trim().equals("1");
+                } else if (line.startsWith("touch ")) {
+                    Game.touchOn = line.substring(6).trim().equals("1");
+                    Game.touchSet = true;
+                } else if (line.startsWith("lastWorld ")) {
+                    int w = Integer.parseInt(line.substring(10).trim());
+                    if (w >= 0 && w < MAX_WORLDS) lastWorld = w;
                 }
             }
         } catch (Throwable t) {
@@ -916,6 +1001,9 @@ static void loadOptions() {
             sb.append("fov ").append(M3GRenderer.fov).append('\n');
             sb.append("texDist ").append(M3GRenderer.texDist).append('\n');
             sb.append("targetFps ").append(Game.targetFps).append('\n');
+            sb.append("autoJump ").append(Game.autoJump ? 1 : 0).append('\n');
+            if (Game.touchSet) sb.append("touch ").append(Game.touchOn ? 1 : 0).append('\n');
+            sb.append("lastWorld ").append(lastWorld).append('\n');
             os.write(sb.toString().getBytes());
             os.flush();
         } catch (Throwable t) {
@@ -992,7 +1080,7 @@ static void loadOptions() {
             Vector v = roots();
             for (int i = 0; i < v.size() && basePath == null; i++) {
                 String r = (String) v.elementAt(i);
-                if (fileExists(r + FILE_NAME)) basePath = r;
+                if (anyWorldAt(r)) basePath = r;
             }
             for (int i = 0; i < v.size() && basePath == null; i++) {
                 String r = (String) v.elementAt(i);
@@ -1005,7 +1093,7 @@ static void loadOptions() {
             fileStatus = basePath;
             System.out.println("[world] save file: " + basePath + FILE_NAME);
         }
-        return basePath + FILE_NAME;
+        return basePath + fileName(slot);
     }
 
     private static void writeFile() {
@@ -1013,7 +1101,8 @@ static void loadOptions() {
         OutputStream os = null;
         try {
             StringBuffer sb = new StringBuffer();
-            sb.append("mc4k world 1\n");   
+            sb.append("mc4k world 1\n");
+            if (seed != DEFAULT_SEED) sb.append("seed ").append(seed).append('\n');
             if (pValid) {
                 sb.append("player ").append(pAreaX).append(' ').append(pAreaZ);
                 for (int i = 0; i < 6; i++) sb.append(' ').append(pState[i]);
@@ -1121,6 +1210,14 @@ private static void readSpawn(String line) {
                 if (nl < 0) nl = all.length();
                 String line = all.substring(start, nl);
                 start = nl + 1;
+                if (line.startsWith("seed ")) {
+                    try {
+                        applySeed(Long.parseLong(line.substring(5).trim()));
+                    } catch (Throwable t) {
+                        System.out.println("[world] seed line bad: " + t);
+                    }
+                    continue;
+                }
                 if (line.startsWith("player ")) {
                     readPlayer(line);
                     continue;
