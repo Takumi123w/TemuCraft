@@ -148,6 +148,7 @@ private static VertexBuffer sheep3dMeshVb(boolean hurt) {
     private final int[] hb = new int[3];
     private final float[] hc = new float[3];
     private final float[] pa3 = new float[3], pb3 = new float[3];
+    private final float[] outlineQ = new float[3];
 
     
     private void drawOutline(Graphics g, int W, int H) {
@@ -169,7 +170,7 @@ private static VertexBuffer sheep3dMeshVb(boolean hurt) {
                 boolean fv = (hc[v] - (hb[v] + bv)) * (bv == 1 ? 1 : -1) > 0;
                 if (!fu && !fv) continue;
 
-                float[] q = new float[3];
+                float[] q = outlineQ;
                 q[e] = hb[e];
                 q[u] = hb[u] + bu;
                 q[v] = hb[v] + bv;

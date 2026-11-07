@@ -90,6 +90,7 @@ final class Game extends Canvas implements Runnable, CommandListener {
 
     private boolean kMine;
     private int mineTimer;
+    private int memTick;
     private int mineX = -1, mineY = -1, mineZ = -1;
 
     static final int MAX_HP = 10;
@@ -1108,6 +1109,11 @@ private int[] findBedHead(int tx, int ty, int tz) {
                 }
                 if (steps == 20) acc = 0;
 
+                
+                
+                if ((++memTick & 127) == 0 && Runtime.getRuntime().freeMemory() < 300000L) {
+                    System.gc();
+                }
                 clearPlayerBody();
                 updateLighting();
                 updateZombies();
