@@ -318,30 +318,30 @@ private static int next(int[] vals, int cur) {
     }
 
     private void activate() {
-        if (mode == 1) {
-            if (sel == 0) {
-                World.setScenery(!World.sceneryOn);
-            } else if (sel == 1) {
-                Game.showInfo = !Game.showInfo;
-                World.saveOptions();
-            } else if (sel == 2) {
-                M3GRenderer.fov = next(FOVS, M3GRenderer.fov);
-                World.saveOptions();
-            } else if (sel == 3) {
-                M3GRenderer.texDist = next(TEXD, M3GRenderer.texDist);
-                World.saveOptions();
-            } else if (sel == 4) {
-                Game.targetFps = next(FPSV, Game.targetFps);
-                World.saveOptions();
-            } else if (sel == 5) {                                    
-                World.setInstantGen(!World.instantGen);
-            } else {
-                back();
-                return;
-            }
-            repaint();
+    if (mode == 1) {
+        if (sel == 0) {
+            World.setScenery(!World.sceneryOn);
+        } else if (sel == 1) {
+            World.setInstantGen(!World.instantGen);
+        } else if (sel == 2) {
+            Game.showInfo = !Game.showInfo;
+            World.saveOptions();
+        } else if (sel == 3) {
+            M3GRenderer.fov = next(FOVS, M3GRenderer.fov);
+            World.saveOptions();
+        } else if (sel == 4) {
+            M3GRenderer.texDist = next(TEXD, M3GRenderer.texDist);
+            World.saveOptions();
+        } else if (sel == 5) {
+            Game.targetFps = next(FPSV, Game.targetFps);
+            World.saveOptions();
+        } else {
+            back();
             return;
         }
+        repaint();
+        return;
+    }
         switch (sel) {
             case 0: midlet.startGame(false); break;
             case 1: midlet.startGame(true); break;
