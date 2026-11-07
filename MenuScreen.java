@@ -13,17 +13,17 @@ final class MenuScreen extends Canvas implements CommandListener {
     private final boolean canContinue;
 
     
-    // 0 main, 1 options, 2 world list, 3 world actions, 4 delete confirm
+    
     private int mode;
     private int sel;
-    private int picked;                                   // world slot chosen in the list
+    private int picked;                                   
     private final boolean[] worldHas = new boolean[World.MAX_WORLDS];
     
     private int scroll;
 
     
     private int pressIdx = -1;
-    private int pressArrow = -1;                          // Up (0) / Down (1) button under the finger
+    private int pressArrow = -1;                          
     private int pressY;
     private int lastY;
     private boolean dragging;
@@ -128,7 +128,7 @@ private static int next(int[] vals, int cur) {
         return Math.min(items().length, scroll + visible());
     }
 
-    /** The "^" is shown when the list is scrolled down; on touch devices also whenever there is an item above. */
+    
     private boolean upShown() {
         return scroll > 0 || (hasPointerEvents() && sel > 0);
     }
@@ -146,7 +146,7 @@ private static int next(int[] vals, int cur) {
         return btnY(shownEnd() - 1) + rowH() - 2;
     }
 
-    /** 0 = the "^", 1 = the "v", -1 = none. Generous hit boxes, but they sit in gaps that are already free. */
+    
     private int arrowAt(int x, int y) {
         int half = Math.max(28, bw() / 6);
         if (x < getWidth() / 2 - half || x >= getWidth() / 2 + half) return -1;
@@ -157,7 +157,7 @@ private static int next(int[] vals, int cur) {
         return -1;
     }
 
-    /** Moves the selection one step (no wrap) so the list scrolls along with it. */
+    
     private void step(int d) {
         int n = items().length;
         int ns = sel + d;
@@ -351,12 +351,12 @@ private static int next(int[] vals, int cur) {
         pressY = y;
         lastY = y;
         dragging = false;
-        if (pressArrow >= 0) repaint();           // show the button as pressed
+        if (pressArrow >= 0) repaint();           
     }
 
     protected void pointerDragged(int x, int y) {
         if (pressArrow >= 0) {
-            if (arrowAt(x, y) != pressArrow) {    // finger slid off the button
+            if (arrowAt(x, y) != pressArrow) {    
                 pressArrow = -1;
                 repaint();
             }
@@ -373,7 +373,7 @@ private static int next(int[] vals, int cur) {
             lastY = y;
         }
         clampScroll();
-        // keep the highlighted row inside the view, otherwise paint() would scroll straight back to it
+        
         int v = visible();
         if (sel < scroll) sel = scroll;
         if (sel >= scroll + v) sel = scroll + v - 1;
@@ -435,13 +435,13 @@ private static int next(int[] vals, int cur) {
             picked = sel;
             go(3, 0);
         } else {
-            midlet.startGame(sel, true);      // empty slot: create a new world there
+            midlet.startGame(sel, true);      
         }
         return;
     }
     if (mode == 3) {
         if (sel == 0) midlet.startGame(picked, false);
-        else if (sel == 1) go(4, 1);          // default to Cancel
+        else if (sel == 1) go(4, 1);          
         else back();
         return;
     }
@@ -489,7 +489,7 @@ private static int next(int[] vals, int cur) {
         switch (sel) {
             case 0: {
                 int w = World.lastWorld();
-                midlet.startGame(w, !canContinue);   // no save in the last world yet: start a new one
+                midlet.startGame(w, !canContinue);   
                 break;
             }
             case 1:

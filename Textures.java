@@ -8,9 +8,12 @@ final class Textures {
 
     
     static int[] atlas;
+    
+    static int[] darkAtlas;
 
     
     private static final String SHEET = "/tex/blocks.png";
+    private static final String DARK_SHEET = "/tex/block_dark.png";
 
     private Textures() {}
 
@@ -19,13 +22,16 @@ static void build() {
     for (int i = World.FLAT * BLOCK; i < (World.FLAT + 1) * BLOCK; i++) {
         atlas[i] = 0xFF4CAF2E;
     }
-    loadSheet();
+    loadSheet(SHEET, atlas);
     buildTorch();
     buildNew();
     loadItemSheet();
+    darkAtlas = new int[atlas.length];
+    System.arraycopy(atlas, 0, darkAtlas, 0, atlas.length);
+    loadSheet(DARK_SHEET, darkAtlas);
 }
 
-/** Procedural art for blocks and items added after the sprite sheet. */
+
 private static void buildNew() {
     for (int id = Items.TNT; id < Items.SIGN; id++) {
         for (int band = 0; band < 3; band++) {
@@ -77,7 +83,7 @@ private static int torchPixel(int x, int y) {
 
 private static final String ITEM_SHEET = "/tex/items.png";
 
-/** Splits tex/items.png into the atlas: one 16px column per new block or item, three bands. */
+
 private static void loadItemSheet() {
     int n = TEX;
     int[] ids = { Items.SIGN, Items.DOOR, Items.DOOR_TOP, Items.FENCE, Items.DOOR_OPEN, Items.DOOR_TOP_OPEN };
@@ -105,7 +111,7 @@ private static void loadItemSheet() {
     }
 }
 
-private static void loadSheet() {
+private static void loadSheet(String path, int[] out) {
     int n = TEX;
     int[] ids = {
         World.GRASS, World.DIRT, World.STONE, World.BRICKS, World.WOOD, World.LEAVES,
@@ -118,25 +124,25 @@ private static void loadSheet() {
 
     Image img;
     try {
-        img = Image.createImage(SHEET);
+        img = Image.createImage(path);
     } catch (java.io.IOException e) {
-        throw new IllegalStateException("missing texture sheet " + SHEET + ": " + e);
+        throw new IllegalStateException("missing texture sheet " + path + ": " + e);
     }
     int w = img.getWidth(), h = img.getHeight();
     if (w < (headCol + 1) * n || h < 3 * n) {
-        throw new IllegalStateException("texture sheet " + SHEET + " is " + w + "x" + h
+        throw new IllegalStateException("texture sheet " + path + " is " + w + "x" + h
                 + ", needs at least " + ((headCol + 1) * n) + "x" + (3 * n));
     }
     int[] sheet = new int[w * h];
     img.getRGB(sheet, 0, w, 0, 0, w, h);
-    System.out.println("[tex] loaded " + SHEET + " " + w + "x" + h);
+    System.out.println("[tex] loaded " + path + " " + w + "x" + h);
 
     for (int k = 0; k < ids.length; k++) {
         for (int band = 0; band < 3; band++) {
             int sx = k * n, sy = band * n;
             int dst = ids[k] * BLOCK + band * n * n;
             for (int y = 0; y < n; y++) {
-                System.arraycopy(sheet, (sy + y) * w + sx, atlas, dst + y * n, n);
+                System.arraycopy(sheet, (sy + y) * w + sx, out, dst + y * n, n);
             }
         }
     }
@@ -145,7 +151,7 @@ private static void loadSheet() {
     for (int band = 0; band < 3; band++) {
         for (int y = 0; y < n; y++) {
             System.arraycopy(sheet, (band * n + y) * w + headCol * n,
-                    atlas, Items.BED_HEAD * BLOCK + band * n * n + y * n, n);
+                    out, Items.BED_HEAD * BLOCK + band * n * n + y * n, n);
         }
     }
     }

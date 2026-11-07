@@ -12,11 +12,11 @@ final class Game extends Canvas implements Runnable, CommandListener {
     static final int PHYS_MS = 10;
     static boolean showInfo = false;
 
-    // On-screen touch controls. touchSet becomes true once the player picks a value in Options;
-    // until then they are on only when the device reports pointer support.
+    
+    
     static boolean touchOn = false;
     static boolean touchSet = false;
-    // Hop up one-block steps by walking into them (the Jump button still works)
+    
     static boolean autoJump = true;
     private boolean grounded;
 
@@ -24,15 +24,15 @@ final class Game extends Canvas implements Runnable, CommandListener {
         if (!touchSet) touchOn = hasPointer;
     }
 
-    // Pocket Edition style: d-pad with jump in the middle, pause at the top, tappable hotbar,
-    // tap = place/attack, hold = mine, drag = look.
+    
+    
     private static final int T_UP = 0, T_DOWN = 1, T_LEFT = 2, T_RIGHT = 3, T_JUMP = 4,
             T_PAUSE = 5, T_COUNT = 6;
-    private static final float LOOK_SENS = 0.012f;   // radians per dragged pixel
+    private static final float LOOK_SENS = 0.012f;   
     private static final int TAP_MS = 250;
-    private final int[] tr = new int[4];             // scratch rect: x, y, w, h
-    private int touchBtn = -1;                       // button under the finger, or -1
-    private boolean touchLook;                       // finger is on the free area
+    private final int[] tr = new int[4];             
+    private int touchBtn = -1;                       
+    private boolean touchLook;                       
     private boolean touchDragged;
     private int touchX, touchY, touchDownX, touchDownY;
     private long touchDownAt;
@@ -49,6 +49,7 @@ final class Game extends Canvas implements Runnable, CommandListener {
     static final int HOT_Y3 = MAIN_Y3 + 3 * SZ + 4;
     static final int PH3 = HOT_Y3 + SZ + 4;
     static final int CLOSE_BTN = Inventory.OUT + 1;
+    static float dayAmt = 1f; 
     static final float[] SC_DAY = { 1f, 1f, 1f };
     static final float[] AC_DAY = { 0.5f, 0.5f, 0.5f };
     static final float[] YC_DAY = rgb(0x51BAF7);
@@ -108,7 +109,7 @@ final class Game extends Canvas implements Runnable, CommandListener {
     private final int[] fuseZ = new int[MAX_FUSE];
     private final long[] fuseAt = new long[MAX_FUSE];
     private int fuseN;
-    // true from a restored save until the chunks under the saved position exist
+    
     private boolean restorePending;
 
     private volatile boolean running = true;
@@ -406,9 +407,9 @@ private void moveCursor(int dx, int dy) {
         if (best >= 0) invSel = best;
     }
 
-    // ---- touch controls (Pocket Edition style) ---------------------------
+    
 
-    private volatile boolean tapPending;             // resolved on the game thread (place or attack)
+    private volatile boolean tapPending;             
 
     private int tsz() {
         int s = Math.min(getWidth(), getHeight()) / 6;
@@ -425,12 +426,12 @@ private void moveCursor(int dx, int dy) {
         return getHeight() - SZ - 2;
     }
 
-    /** Fills r with the rectangle of touch button i. */
+    
     private void touchRect(int i, int[] r) {
         int W = getWidth(), H = getHeight();
         int s = tsz(), g = 2;
-        int floor = H - SZ - 14;                  // stay clear of the hotbar and hearts
-        int top = floor - 3 * s - 2 * g;          // d-pad block, bottom-left
+        int floor = H - SZ - 14;                  
+        int top = floor - 3 * s - 2 * g;          
         int c0 = 4, c1 = 4 + s + g, c2 = 4 + 2 * (s + g);
         int r0 = top, r1 = top + s + g, r2 = top + 2 * (s + g);
         int x = 0, y = 0, w = s, h = s;
@@ -439,8 +440,8 @@ private void moveCursor(int dx, int dy) {
             case T_DOWN: x = c1; y = r2; break;
             case T_LEFT: x = c0; y = r1; break;
             case T_RIGHT: x = c2; y = r1; break;
-            case T_JUMP: x = c1; y = r1; break;                          // middle of the d-pad
-            default: w = h = s * 3 / 4; x = (W - w) / 2; y = 4; break;   // T_PAUSE, top centre
+            case T_JUMP: x = c1; y = r1; break;                          
+            default: w = h = s * 3 / 4; x = (W - w) / 2; y = 4; break;   
         }
         r[0] = x; r[1] = y; r[2] = w; r[3] = h;
     }
@@ -473,7 +474,7 @@ private void moveCursor(int dx, int dy) {
         touchHold(b, true);
     }
 
-    /** Taps on the hotbar pick a slot; the last box opens the inventory. */
+    
     private boolean touchHotbar(int x, int y) {
         int hx = hbX(), hy = hbY();
         if (y < hy - 3) return false;
@@ -497,7 +498,7 @@ private void moveCursor(int dx, int dy) {
         touchBtn = -1;
         if (touchLook) {
             kMine = false;
-            // PE controls: a quick tap places a block / uses / attacks, holding mines
+            
             if (!touchDragged && System.currentTimeMillis() - touchDownAt < TAP_MS) tapPending = true;
         }
         touchLook = false;
@@ -509,7 +510,7 @@ private void moveCursor(int dx, int dy) {
                 || sheeps.target(playerX, playerY, playerZ, fwdX(), fwdY(), fwdZ()) >= 0;
     }
 
-    /** Game thread: turn a finished tap into an action, and start mining once the hold is long enough. */
+    
     private void touchUpdate() {
         if (tapPending) {
             tapPending = false;
@@ -518,7 +519,7 @@ private void moveCursor(int dx, int dy) {
         }
         if (touchLook && !touchDragged && !kMine && System.currentTimeMillis() - touchDownAt >= TAP_MS) {
             kMine = true;
-            if (!touchLook) kMine = false;         // finger lifted in the meantime
+            if (!touchLook) kMine = false;         
         }
     }
 
@@ -556,11 +557,11 @@ private void moveCursor(int dx, int dy) {
             } else if (i == T_RIGHT) {
                 g.fillTriangle(cx + a, cy, cx - a, cy - a, cx - a, cy + a);
             } else if (i == T_JUMP) {
-                int b = a * 2 / 3;                 // two stacked chevrons
+                int b = a * 2 / 3;                 
                 g.fillTriangle(cx, cy - a, cx - a, cy - a + b + 2, cx + a, cy - a + b + 2);
                 g.fillTriangle(cx, cy, cx - a, cy + b + 2, cx + a, cy + b + 2);
             } else {
-                int bw = Math.max(2, w / 6);       // pause: two bars
+                int bw = Math.max(2, w / 6);       
                 g.fillRect(cx - bw - 1, cy - a, bw, 2 * a);
                 g.fillRect(cx + 1, cy - a, bw, 2 * a);
             }
@@ -573,9 +574,9 @@ private void moveCursor(int dx, int dy) {
             if (!touchDragged && Math.abs(x - touchDownX) + Math.abs(y - touchDownY) < 8) return;
             if (!touchDragged) {
                 touchDragged = true;
-                kMine = false;                     // dragging looks around instead of mining
+                kMine = false;                     
             }
-            // like a mouse: drag right = turn right, drag down = look down
+            
             yaw -= (x - touchX) * LOOK_SENS;
             pitch -= (y - touchY) * LOOK_SENS;
             if (pitch < -1.57f) pitch = -1.57f;
@@ -583,7 +584,7 @@ private void moveCursor(int dx, int dy) {
             touchX = x;
             touchY = y;
         } else if (touchBtn >= 0 && touchBtn <= T_JUMP) {
-            int b = touchAt(x, y);                 // slide between the d-pad buttons
+            int b = touchAt(x, y);                 
             if (b != touchBtn) {
                 touchHold(touchBtn, false);
                 if (b >= 0 && b <= T_JUMP) {
@@ -609,7 +610,7 @@ protected void pointerPressed(int x, int y) {
             if (b >= 0) {
                 touchPress(b);
             } else {
-                touchLook = true;                  // free area: tap = place/attack, hold = mine, drag = look
+                touchLook = true;                  
                 touchDragged = false;
                 touchX = touchDownX = x;
                 touchY = touchDownY = y;
@@ -644,7 +645,7 @@ protected void pointerPressed(int x, int y) {
 
     private void physicsStep() {
         if (restorePending) {
-            // Chunks load lazily, so wait for the area before trusting the saved height.
+            
             if (!World.areaReady()) return;
             restorePending = false;
             int bx = Calc.floor(playerX), bz = Calc.floor(playerZ);
@@ -689,7 +690,7 @@ protected void pointerPressed(int x, int y) {
                 if (!World.passable(World.get(bx, by, bz))
                         || (axis != 2 && World.get(bx, by - 1, bz) == Items.FENCE)) {
                     if (axis != 2) {
-                        // walked into a wall: hop up if it is a one block step with room above
+                        
                         if (autoJump && moving && wasGrounded
                                 && freeAt(nx, ny - 1f, nz) && freeAt(playerX, playerY - 1f, playerZ)) {
                             stepUp = true;
@@ -713,7 +714,7 @@ protected void pointerPressed(int x, int y) {
         if (stepUp && velY >= 0f) velY = -0.1f;
     }
 
-    /** True if the player's body fits at (x, y, z) - the same test the movement code uses for walls. */
+    
     private boolean freeAt(float x, float y, float z) {
         for (int c = 0; c < 12; c++) {
             int bx = Calc.floor(x + (c & 1) * 0.6f - 0.3f);
@@ -776,9 +777,15 @@ protected void pointerPressed(int x, int y) {
         if (b < 0f) b = 0f;
         if (b > 1f) b = 1f;
         float tw = 1f - Math.abs(b * 2f - 1f);
-        Renderer.dimC[0] = 0.28f + 0.72f * b;
-        Renderer.dimC[1] = (0.28f + 0.72f * b) * (1f - 0.15f * tw);
-        Renderer.dimC[2] = (0.45f + 0.55f * b) * (1f - 0.35f * tw);
+        
+        
+        float s = e * 4f;
+        if (s < 0f) s = 0f;
+        if (s > 1f) s = 1f;
+        dayAmt = s;
+        Renderer.dimC[0] = 1f + (0.28f + 0.72f * b - 1f) * s;
+        Renderer.dimC[1] = 1f + ((0.28f + 0.72f * b) * (1f - 0.15f * tw) - 1f) * s;
+        Renderer.dimC[2] = 1f + ((0.45f + 0.55f * b) * (1f - 0.35f * tw) - 1f) * s;
     }
 
     
@@ -1032,14 +1039,14 @@ private void die() {
     int top = World.get(x, by + 1, z);
     if (!Items.isDoorBottom(bot) || !Items.isDoorTop(top)) return;
     boolean open = bot == Items.DOOR_OPEN;
-    // Don't close the door on the player.
+    
     if (open && (overlapsPlayer(x, by, z) || overlapsPlayer(x, by + 1, z))) return;
     World.set(x, by, z, open ? Items.DOOR : Items.DOOR_OPEN);
     World.set(x, by + 1, z, open ? Items.DOOR_TOP : Items.DOOR_TOP_OPEN);
 }
 
 private int[] findDoorSpot(int x, int y, int z) {
-    // Bottom at the clicked spot with the top above it, otherwise top at the spot with the bottom below it.
+    
     int[][] tries = { { x, y, z, x, y + 1, z }, { x, y - 1, z, x, y, z } };
     for (int i = 0; i < tries.length; i++) {
         int[] c = tries[i];
@@ -1188,7 +1195,7 @@ private void drawTorchGlow(Graphics g, int W, int H) {
         }
         torchGlow = Image.createRGBImage(px, n, n, true);
     }
-    if (Renderer.dimC[0] > 0.9f) return;   
+    if (dayAmt > 0.75f) return;
     g.drawImage(torchGlow, W / 2 - 24, H - 72, Graphics.TOP | Graphics.LEFT);
 }
 

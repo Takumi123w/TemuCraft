@@ -1,4 +1,5 @@
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Enumeration;
@@ -33,9 +34,9 @@ private static int thinN;
 
     private static final long DEFAULT_SEED = 18295169L;
     private static long seed = DEFAULT_SEED;
-    private static final String FILE_NAME = "mc4kworld.txt";   // world slot 0 (also the old single save)
+    private static final String FILE_NAME = "mc4kworld.txt";   
     static final int MAX_WORLDS = 5;
-    private static int slot;                                   // world currently loaded
+    private static int slot;                                   
     private static final int MAX_CHUNKS = 16;
     
     private static final float EDGE = 0.5f;
@@ -91,6 +92,8 @@ final boolean[] urgent = new boolean[SECTIONS];
 
     
     private static final Hashtable saved = new Hashtable();
+    
+    private static final StringBuffer keptLines = new StringBuffer();
 private static final Hashtable signs = new Hashtable();
 
     private World() {}
@@ -128,7 +131,7 @@ private static boolean isListedThin(int id) {
     return id == Items.FENCE || id == Items.SIGN || id == Items.DOOR || id == Items.DOOR_OPEN;
 }
 
-/** Thin or non-cube blocks: skipped by cube meshing, and the door tops. */
+
 static boolean isThin(int id) {
     return isListedThin(id) || id == Items.DOOR_TOP || id == Items.DOOR_TOP_OPEN;
 }
@@ -617,7 +620,7 @@ private static void unloadAt(int i) {
         return hasSave(slot);
     }
 
-    /** True if world slot s has a save file with content. */
+    
     static boolean hasSave(int s) {
         if (s == slot && saved.size() > 0) return true;
         FileConnection fc = null;
@@ -643,27 +646,27 @@ static int currentSlot() {
 
 private static int lastWorld;
 
-/** The world the player had open last time (used by the menu's Continue). */
+
 static int lastWorld() {
     return lastWorld;
 }
 
-/** Make slot s the loaded world. Game's constructor (World.init) then reads its file. */
+
 static void selectWorld(int s, boolean fresh) {
     if (s < 0 || s >= MAX_WORLDS) s = 0;
     slot = s;
     clearMemory();
     applySeed(DEFAULT_SEED);
     if (fresh) {
-        // every new world gets its own terrain
+        
         applySeed((new Random()).nextLong() & 0x7FFFFFFFL);
         writeFile();
     }
     lastWorld = s;
-    saveOptions();   // remembers the last played world
+    saveOptions();   
 }
 
-/** Delete world slot s from storage. */
+
 static void deleteWorld(int s) {
     if (s == slot) clearMemory();
     FileConnection fc = null;
@@ -862,7 +865,9 @@ private static void placeTree(int ax, int az) {
 
     
     private static void saveChunk(Chunk c) {
-        if (!isArea(c)) return;
+        
+        
+        if (!isArea(c) || !c.modified) return;
         saved.put(new Integer(storeKey(areaX, areaZ, c.cx, c.cz)), encodeText(c));
         c.modified = false;
     }
@@ -894,7 +899,7 @@ private static void placeTree(int ax, int az) {
     
     private static String optPath() {
         if (filePath() == null) return null;
-        return basePath + OPT_NAME;   // options are shared by all worlds
+        return basePath + OPT_NAME;   
     }
 
     private static String fileName(int s) {
@@ -1096,37 +1101,18 @@ static void loadOptions() {
         return basePath + fileName(slot);
     }
 
+    
+    private static int put(OutputStream os, String s) throws IOException {
+        byte[] b = s.getBytes();
+        os.write(b);
+        return b.length;
+    }
+
+    
     private static void writeFile() {
         FileConnection fc = null;
         OutputStream os = null;
         try {
-            StringBuffer sb = new StringBuffer();
-            sb.append("mc4k world 1\n");
-            if (seed != DEFAULT_SEED) sb.append("seed ").append(seed).append('\n');
-            if (pValid) {
-                sb.append("player ").append(pAreaX).append(' ').append(pAreaZ);
-                for (int i = 0; i < 6; i++) sb.append(' ').append(pState[i]);
-                sb.append('\n');
-                sb.append("time ").append(pTick).append('\n');
-            }
-            if (spawnValid) {
-    sb.append("spawn ");
-    for (int i = 0; i < 5; i++) {
-        if (i > 0) sb.append(' ');
-        sb.append(spawnState[i]);
-    }
-    sb.append('\n');
-}
-if (invLine != null) sb.append("inv ").append(invLine).append('\n');
-            Enumeration se = signs.keys();
-            while (se.hasMoreElements()) {
-                String k = (String) se.nextElement();
-                sb.append("sign ").append(k).append(' ').append(escapeSign((String) signs.get(k))).append('\n');
-            }
-            Enumeration e = saved.elements();
-            while (e.hasMoreElements()) sb.append((String) e.nextElement()).append('\n');
-            byte[] data = sb.toString().getBytes();
-
             fc = (FileConnection) Connector.open(filePath(), Connector.READ_WRITE);
             if (!fc.exists()) {
                 fc.create();
@@ -1139,12 +1125,40 @@ if (invLine != null) sb.append("inv ").append(invLine).append('\n');
                 }
             }
             os = fc.openOutputStream();
-            os.write(data);
+            int bytes = 0;
+            bytes += put(os, "mc4k world 1\n");
+            if (seed != DEFAULT_SEED) bytes += put(os, "seed " + seed + "\n");
+            if (pValid) {
+                StringBuffer pl = new StringBuffer();
+                pl.append("player ").append(pAreaX).append(' ').append(pAreaZ);
+                for (int i = 0; i < 6; i++) pl.append(' ').append(pState[i]);
+                pl.append('\n');
+                pl.append("time ").append(pTick).append('\n');
+                bytes += put(os, pl.toString());
+            }
+            if (spawnValid) {
+                StringBuffer sp = new StringBuffer("spawn ");
+                for (int i = 0; i < 5; i++) {
+                    if (i > 0) sp.append(' ');
+                    sp.append(spawnState[i]);
+                }
+                sp.append('\n');
+                bytes += put(os, sp.toString());
+            }
+            if (invLine != null) bytes += put(os, "inv " + invLine + "\n");
+            Enumeration se = signs.keys();
+            while (se.hasMoreElements()) {
+                String k = (String) se.nextElement();
+                bytes += put(os, "sign " + k + " " + escapeSign((String) signs.get(k)) + "\n");
+            }
+            Enumeration e = saved.elements();
+            while (e.hasMoreElements()) bytes += put(os, (String) e.nextElement() + "\n");
+            bytes += put(os, keptLines.toString());
             os.flush();
             os.close();
             os = null;
-            long size = fc.fileSize();   
-            System.out.println("[world] wrote " + data.length + " bytes, file is " + size);
+            long size = fc.fileSize();
+            System.out.println("[world] wrote " + bytes + " bytes, file is " + size);
             fileStatus = "saved " + size + " bytes";
         } catch (Throwable t) {
             System.out.println("[world] file write failed: " + t);
@@ -1154,7 +1168,7 @@ if (invLine != null) sb.append("inv ").append(invLine).append('\n');
             try { if (fc != null) fc.close(); } catch (Throwable t) { }
         }
     }
-    
+
 private static void readSpawn(String line) {
     try {
         String s = line.substring(6).trim();
@@ -1192,6 +1206,7 @@ private static void readSpawn(String line) {
     }
 
     private static void readFile() {
+        keptLines.setLength(0);
         FileConnection fc = null;
         InputStream is = null;
         try {
@@ -1210,6 +1225,7 @@ private static void readSpawn(String line) {
                 if (nl < 0) nl = all.length();
                 String line = all.substring(start, nl);
                 start = nl + 1;
+                try {
                 if (line.startsWith("seed ")) {
                     try {
                         applySeed(Long.parseLong(line.substring(5).trim()));
@@ -1243,7 +1259,10 @@ private static void readSpawn(String line) {
                     continue;
                 }
                 int bar = line.indexOf('|');
-                if (bar < 0) continue;
+                if (bar < 0) {
+                    if (line.length() > 0 && !line.startsWith("mc4k world")) keptLines.append(line).append('\n');
+                    continue;
+                }
                 String[] h = new String[4];
                 int p = 0;
                 for (int k = 0; k < 4; k++) {
@@ -1254,6 +1273,10 @@ private static void readSpawn(String line) {
                 int key = storeKey(Integer.parseInt(h[0]), Integer.parseInt(h[1]),
                                    Integer.parseInt(h[2]), Integer.parseInt(h[3]));
                 saved.put(new Integer(key), line);
+                } catch (Throwable t) {
+                    System.out.println("[world] keeping unreadable line: " + t);
+                    keptLines.append(line).append('\n');
+                }
             }
             System.out.println("[world] loaded " + saved.size() + " saved chunks");
             fileStatus = "loaded " + saved.size() + " chunks";

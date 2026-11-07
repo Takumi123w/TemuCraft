@@ -55,7 +55,12 @@ private final float[] skyM = new float[16];
 private final byte[] skyBuf = new byte[16];
 static boolean heldTorch;
 static final int MAX_TORCH_LIGHTS = 4;     
-static final float TORCH_LIGHT_R2 = 7f * 7f;
+static final float TORCH_LIGHT_R2 = 10f * 10f;
+
+static final int TORCH_LIT_R = 5;
+
+static final int LIT_BIT = 1 << 16;
+static final int LIT_MASK = LIT_BIT - 1;
 private final Light ambLight = new Light();
 private final Light torchLight = new Light();
 private final Transform[] torchLT = new Transform[MAX_TORCH_LIGHTS];
@@ -63,7 +68,7 @@ private final boolean[] litUsed = new boolean[World.MAX_TORCH];
 private final Material blockMat = new Material();
     static final boolean FOG_ON = false;
     static final int MAX_BUILD = 2;
-    static final int NKEY = (Items.MAX_ID + 1) * 3;
+    static final int NKEY = (Items.MAX_ID + 1) * 6;
     private Image glowImg;
 
 private static Image makeGlow(int n) {
@@ -216,6 +221,8 @@ private static VertexBuffer sheep3dMeshVb(boolean hurt) {
 
     private final Graphics3D g3d;
     private final Appearance[] apps = new Appearance[NKEY];
+    
+    private final Appearance[] darkApps = new Appearance[NKEY];
     private final Fog fog;
     private final Background bg;
     private final Camera cam;
@@ -289,14 +296,17 @@ ambLight.setColor(0xD9D9D9);
 
 torchLight.setMode(Light.OMNI);
 torchLight.setColor(0xFFB060);           
-torchLight.setAttenuation(1f, 0f, 0.25f);
+torchLight.setAttenuation(1f, 0f, 0.08f);
 
 for (int i = 0; i < MAX_TORCH_LIGHTS; i++) torchLT[i] = new Transform();
         
         for (int id = 1; id <= Items.MAX_ID; id++) {
             if (Textures.NAMES[id].length() == 0) continue;   
             for (int band = 0; band < 3; band++) {
-                apps[id * 3 + band] = makeApp(id, band, pm, opaque);
+                apps[id * 3 + band] = makeApp(Textures.atlas, id, band, pm, opaque);
+                if (!sameTile(id, band)) {
+                    darkApps[id * 3 + band] = makeApp(Textures.darkAtlas, id, band, pm, opaque);
+                }
             }
         }
 
@@ -424,7 +434,7 @@ private static VertexBuffer fenceMeshVb() {
     return vb;
 }
 
-/** Bit 0 = +x neighbour, bit 1 = -x, bit 2 = +z, bit 3 = -z. */
+
 private static float[][] fenceBoxes(int mask) {
     int n = 1;
     for (int k = 0; k < 4; k++) if ((mask & (1 << k)) != 0) n += 2;
@@ -446,7 +456,7 @@ private static float[][] fenceBoxes(int mask) {
     return out;
 }
 
-/** Same geometry as boxesVb, but each face gets the full texture (rgb is unused). */
+
 private static VertexBuffer texBoxesVb(float[][] boxes, int[] rgb) {
     int totalVerts = boxes.length * 24;
     short[] pos = new short[totalVerts * 3];
@@ -471,7 +481,7 @@ private static VertexBuffer texBoxesVb(float[][] boxes, int[] rgb) {
     return vb;
 }
 
-/** One 16px tile cut from the item sheet, applied to a block's faces. */
+
 private static Appearance tileApp(Image sheet, int col, int band) {
     Image tile = Image.createImage(sheet, col * Textures.TEX, band * Textures.TEX,
             Textures.TEX, Textures.TEX, 0);
@@ -512,7 +522,7 @@ private static TriangleStripArray boxesTsa(int n) {
     return new TriangleStripArray(0, s);
 }
 
-/** Flat 0.88 x 0.44 panel in the x-y plane, just in front of a board. Text is drawn on its texture. */
+
 private static VertexBuffer plaqueMeshVb() {
     short[] pos = { -42, 36, 4,   42, 36, 4,   -42, 80, 4,   42, 80, 4 };
     short[] tex = { 0, 1,   1, 1,   0, 0,   1, 0 };
@@ -709,11 +719,20 @@ private static Image2D loadPngOrFallback(String name, int fallbackRgb) {
     }
 
     
-    private static byte[] loadPixels(int id, int band) {
+    private static boolean sameTile(int id, int band) {
+        int n = Textures.TEX * Textures.TEX;
+        int base = id * Textures.BLOCK + band * n;
+        for (int i = 0; i < n; i++) {
+            if (Textures.atlas[base + i] != Textures.darkAtlas[base + i]) return false;
+        }
+        return true;
+    }
+
+    private static byte[] loadPixels(int[] src, int id, int band) {
         int n = Textures.TEX;
         byte[] px = new byte[n * n * 4];
         for (int i = 0; i < n * n; i++) {
-            int c = Textures.atlas[id * Textures.BLOCK + band * n * n + i];
+            int c = src[id * Textures.BLOCK + band * n * n + i];
             px[i * 4] = (byte) (c >> 16);
             px[i * 4 + 1] = (byte) (c >> 8);
             px[i * 4 + 2] = (byte) c;
@@ -723,6 +742,16 @@ private static Image2D loadPngOrFallback(String name, int fallbackRgb) {
     }
     
     
+
+private static boolean nearTorch(int x, int y, int z) {
+    int n = World.torchCount();
+    for (int i = 0; i < n; i++) {
+        int dx = Math.abs(World.torchX(i) - x), dy = Math.abs(World.torchY(i) - y), dz = Math.abs(World.torchZ(i) - z);
+        if (dx <= TORCH_LIT_R && dy <= TORCH_LIT_R && dz <= TORCH_LIT_R) return true;
+    }
+    return false;
+}
+
 private static float sectionDist2(World.Chunk c, int sy) {
     float dx = c.cx * CH + CH / 2f - Renderer.px;
     float dy = sy * CH + CH / 2f - Renderer.py;
@@ -730,8 +759,8 @@ private static float sectionDist2(World.Chunk c, int sy) {
     return dx * dx + dy * dy + dz * dz;
 }
 
-private Appearance makeApp(int id, int band, PolygonMode pm, CompositingMode cm) {
-    byte[] px = loadPixels(id, band);
+private Appearance makeApp(int[] src, int id, int band, PolygonMode pm, CompositingMode cm) {
+    byte[] px = loadPixels(src, id, band);
     Texture2D tex = new Texture2D(new Image2D(Image2D.RGBA, Textures.TEX, Textures.TEX, px));
     tex.setFiltering(Texture2D.FILTER_NEAREST, Texture2D.FILTER_NEAREST);
     tex.setWrapping(Texture2D.WRAP_REPEAT, Texture2D.WRAP_REPEAT);
@@ -914,7 +943,7 @@ private void stepSection() {
         if (bd >= DIRS.length) {
             bsec = new Section();
             bcnt = new int[NKEY];
-            for (int r = 0; r < nrec; r++) bcnt[rec[r * 9] * 3 + rec[r * 9 + 1]]++;
+            for (int r = 0; r < nrec; r++) bcnt[rec[r * 9] * 6 + rec[r * 9 + 1]]++;
             bKey = 0;
         }
         return;
@@ -961,14 +990,17 @@ for (int i = 0; i < World.chunkCount(); i++) {
         if (c.view[sy] == null || !visible(c, sy)) continue;
         if (sectionDist2(c, sy) > lim2) continue;
         Section s = (Section) c.view[sy];
+        boolean night = Game.dayAmt < 0.5f;
         for (int k = 0; k < NKEY; k++) {
             if (s.vbs[k] != null) {
-                g3d.render(s.vbs[k], s.tsas[k], apps[k], identity);
+                int kid = k / 6, kb = k % 6, kband = kb % 3;
+                boolean dark = night && kb < 3 && darkApps[kid * 3 + kband] != null;
+                Appearance ka = dark ? darkApps[kid * 3 + kband] : apps[kid * 3 + kband];
+                g3d.render(s.vbs[k], s.tsas[k], ka, identity);
             }
         }
     }
 }
-
 Zombies zs = Renderer.zombies;
             if (zs != null) {
                 for (int i = 0; i < Zombies.MAX; i++) {
@@ -1016,9 +1048,9 @@ Zombies zs = Renderer.zombies;
                     String st = World.signText(bx, by, bz);
                     if (st.length() > 0) {
                         Appearance pa = plaqueApp(st);
-                        // Turn the panel toward the viewer and set it slightly in front of the boards,
-                        // so the text is readable from whichever side the player is on.
-                        // Fixed orientation: front panel (+z) and back panel (turned 180 degrees, so it reads from behind).
+                        
+                        
+                        
                         g3d.render(plaqueVb, plaqueTsa, pa, thinT);
                         plaqueT.setIdentity();
                         plaqueT.postTranslate(tx, -(ty + 1), tz);
@@ -1227,13 +1259,14 @@ private int faceBlock(int a, int slice, int ua, int u, int va, int v, int sign) 
     cc[va] = v;
     int id = World.peek(cc[0], cc[1], cc[2]);
     if (id <= World.AIR || id == Items.TORCH || World.isThin(id)) return 0;
+    int lit = nearTorch(cc[0], cc[1], cc[2]) ? LIT_BIT : 0;
     cc[a] = slice + sign;
     int nb = World.peek(cc[0], cc[1], cc[2]);
 
     
     if (id == World.LEAVES && nb == World.LEAVES) return 0;
     
-    if (nb == World.AIR || nb == World.UNLOADED || nb == Items.TORCH || World.isThin(nb)) return id;
+    if (nb == World.AIR || nb == World.UNLOADED || nb == Items.TORCH || World.isThin(nb)) return id | lit;
     return 0;
 }
 
@@ -1282,7 +1315,9 @@ private int faceBlock(int a, int slice, int ua, int u, int va, int v, int sign) 
                     for (int dx = 0; dx < w; dx++) mask[(j + dy) * CH + i + dx] = 0;
                 }
 
-                addRecord(id, band, id == World.FLAT ? 255 : shade, a + (sign > 0 ? 3 : 0), plane, org[ua] + i, org[va] + j, w, h);
+                int bid = id & LIT_MASK;
+                int litBand = (id & LIT_BIT) != 0 ? 3 : 0;
+                addRecord(bid, band + litBand, bid == World.FLAT ? 255 : shade, a + (sign > 0 ? 3 : 0), plane, org[ua] + i, org[va] + j, w, h);
             }
         }
     }
@@ -1313,7 +1348,7 @@ private int faceBlock(int a, int slice, int ua, int u, int va, int v, int sign) 
         Section sec = new Section();
         int[] cnt = new int[NKEY];
         for (int r = 0; r < nrec; r++) {
-            cnt[rec[r * 9] * 3 + rec[r * 9 + 1]]++;
+            cnt[rec[r * 9] * 6 + rec[r * 9 + 1]]++;
         }
         for (int k = 0; k < NKEY; k++) {
             if (cnt[k] > 0) buildMesh(sec, k, cnt[k]);
@@ -1331,7 +1366,7 @@ private void buildMesh(Section sec, int key, int nq) {
     int q = 0;
     for (int r = 0; r < nrec; r++) {
         int o = r * 9;
-        if (rec[o] * 3 + rec[o + 1] != key) continue;
+        if (rec[o] * 6 + rec[o + 1] != key) continue;
 
         int aRaw = rec[o + 3], plane = rec[o + 4];
         int u0 = rec[o + 5], v0 = rec[o + 6], w = rec[o + 7], h = rec[o + 8];

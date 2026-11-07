@@ -52,7 +52,7 @@ final class Items {
         new Recipe(2, 3, new int[] { PLANKS, PLANKS, PLANKS, STICK, 0, STICK }, WOOD_AXE, 1),
         new Recipe(2, 3, new int[] { COBBLE, COBBLE, COBBLE, STICK, 0, STICK }, STONE_AXE, 1),
         new Recipe(1, 2, new int[] { COAL, STICK }, TORCH, 4),
-        // Iron: no furnace yet, so ore + coal is smelted in the crafting grid.
+        
         new Recipe(1, 2, new int[] { IRON_ORE, COAL }, IRON_INGOT, 2),
         new Recipe(1, 1, new int[] { IRON_BLOCK }, IRON_INGOT, 4),
         new Recipe(2, 2, new int[] { IRON_INGOT, IRON_INGOT, IRON_INGOT, IRON_INGOT }, IRON_BLOCK, 1),
@@ -88,7 +88,7 @@ final class Items {
         return durability(id) > 0 ? 1 : STACK;
     }
 
-    /** Only real blocks can be placed. Sticks, tools, coal, food and ingots are items. */
+    
     static boolean placeable(int id) {
         switch (id) {
             case World.GRASS:
@@ -120,7 +120,7 @@ final class Items {
         return id == WOOD_SWORD || id == STONE_SWORD || id == IRON_SWORD;
     }
 
-    /** 0 = none, 1 = wood, 2 = stone, 3 = iron. */
+    
     static int pickLevel(int id) {
         switch (id) {
             case WOOD_PICKAXE: return 1;
@@ -130,7 +130,7 @@ final class Items {
         }
     }
 
-    /** 0 = none, 1 = wood, 2 = stone, 3 = iron. */
+    
     static int axeLevel(int id) {
         switch (id) {
             case WOOD_AXE: return 1;
