@@ -1,32 +1,43 @@
-import javax.microedition.lcdui.Display;
 import javax.microedition.lcdui.Command;
 import javax.microedition.lcdui.CommandListener;
+import javax.microedition.lcdui.Display;
 import javax.microedition.lcdui.Displayable;
 import javax.microedition.lcdui.TextBox;
 import javax.microedition.lcdui.TextField;
 import javax.microedition.midlet.MIDlet;
 
-
 public class Minecraft4kMidlet extends MIDlet {
     private Game game;
     private MenuScreen menu;
 
-    protected void startApp() {
-        if (game != null) {
-            game.setPaused(false);
-            return;
-        }
-        if (menu == null) menu = new MenuScreen(this);
-        Display.getDisplay(this).setCurrent(menu);
+protected void startApp() {
+    if (game != null) {
+        game.setPaused(false);
+        return;
     }
+    menu = new MenuScreen(this);
+    Display.getDisplay(this).setCurrent(menu);
+}
 
     protected void pauseApp() {
         if (game != null) game.setPaused(true);
     }
 
-    protected void destroyApp(boolean unconditional) {
-        if (game != null) game.stop();
+
+protected void destroyApp(boolean unconditional) {
+    if (game != null) game.stop();
+    
+    
+    try {
+        javax.microedition.rms.RecordStore.deleteRecordStore("mc4k_inv");
+    } catch (Throwable t) {}
+    
+    for (int i = 0; i < 5; i++) {
+        try {
+            javax.microedition.rms.RecordStore.deleteRecordStore("mc4k_save_" + i);
+        } catch (Throwable t) {}
     }
+}
 
     
     void startGame(int slot, boolean fresh) {
