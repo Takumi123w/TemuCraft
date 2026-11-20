@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Created-By: TOOL IDE J2ME CODE BY TK
+MIDlet-Name: TemuCraft
+MIDlet-Version: 1.0.0
+MIDlet-Vendor: Test
+MIDlet-1: TemuCraft,,Minecraft4kMidlet
+Obfuscation-Level: None
+MicroEdition-Configuration: CLDC-1.1
+MicroEdition-Profile: MIDP-2.0
+
